@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QGraphicsView,
     QGraphicsScene,
-    QComboBox,
+    QComboBox, QStyledItemDelegate,
 )
 from PyQt5.QtGui import QIntValidator
 from PyQt5.QtCore import Qt
@@ -114,7 +114,6 @@ class App(QWidget):
             ["", "2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
         )
         self.cheat_sheet_table.verticalHeader().setVisible(False)
-        self.cheat_sheet_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.cheat_sheet_table.setFixedHeight(520)
         self.cheat_sheet_table.setFixedWidth(540)
         self.cheat_sheet_table.setStyleSheet("border: 1px solid #ccc;")
@@ -319,21 +318,61 @@ class App(QWidget):
             "9,9",
             "10,10",
         ]
+        columns = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
+
+        class ComboBoxDelegate(QStyledItemDelegate):
+            def __init__(self, items, parent=None, split_threshold=24):
+                super().__init__(parent)
+                self.items = items
+                self.split_threshold = split_threshold
+
+            def createEditor(self, parent, action, index):
+                combo = QComboBox(parent)
+                if index.row() > self.split_threshold:
+                    combo.addItems(self.items)
+                else:
+                    combo.addItems(self.items[:-1])
+
+                # connect signal when selection changes
+                combo.currentIndexChanged.connect(lambda _, ix=index, c=combo: self.on_selection_changed(ix, c))
+
+                return combo
+
+            def setEditorData(self, editor, index):
+                value = index.data()
+                i = editor.findText(value)
+                if i >= 0:
+                    editor.setCurrentIndex(i)
+
+            def setModelData(self, editor, model, index):
+                model.setData(index, editor.currentText())
+
+            @staticmethod
+            def on_selection_changed(index, combo):
+                key = (rows[index.row()], columns[index.column() - 1])
+                CHEAT_SHEET[key] = combo.currentText()
+
         self.cheat_sheet_table.setRowCount(len(rows))
 
         for row, player_hand in enumerate(rows):
-            self.cheat_sheet_table.setItem(row, 0, QTableWidgetItem(str(player_hand)))
-            for col, dealer_card in enumerate(
-                ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
-            ):
+            player_hand_item = QTableWidgetItem(str(player_hand))
+            player_hand_item.setFlags(player_hand_item.flags() & ~Qt.ItemIsEditable)
+            self.cheat_sheet_table.setItem(row, 0, player_hand_item)
+            for col, dealer_card in enumerate(columns):
                 key = (player_hand, dealer_card)
                 if key in CHEAT_SHEET:
                     action = CHEAT_SHEET[key]
-                    item = QTableWidgetItem(action)
-                    item.setTextAlignment(Qt.AlignCenter)
-                    self.cheat_sheet_table.setItem(row, col + 1, item)
+                    action_item = QTableWidgetItem(action)
+                    action_item.setTextAlignment(Qt.AlignCenter)
+                    self.cheat_sheet_table.setItem(row, col + 1, action_item)
 
-        self.cheat_sheet_table.resizeColumnsToContents()
+        actions = ["hit", "stand", "double", "split"]
+        self.cheat_sheet_table.setColumnWidth(0, 47)
+        delegate = ComboBoxDelegate(actions, self.cheat_sheet_table)
+        for column_index in range(1, self.cheat_sheet_table.columnCount()):
+            self.cheat_sheet_table.setItemDelegateForColumn(column_index, delegate)
+            self.cheat_sheet_table.setColumnWidth(column_index, 47)
+
 
     def update_button_styles(self):
         if self.start_button.isChecked():
