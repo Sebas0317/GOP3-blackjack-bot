@@ -36,11 +36,10 @@ class LearningTable:
         sk = self._state_key(hand, dealer, tc)
         best = None
         best_q = float("-inf")
-        min_samples = 3
         for a in actions:
             key = self._action_key(sk, a)
             count = self.counts.get(key, 0)
-            if count < min_samples:
+            if count < 20:
                 continue
             q = self.q.get(key, 0.0)
             if q > best_q:

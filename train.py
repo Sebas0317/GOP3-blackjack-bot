@@ -87,7 +87,9 @@ def dealer_play(shoe, cards):
     return cards
 
 
-def get_action(hk, ds, tc, learning, possible):
+def get_action(hk, ds, tc, learning, possible, explore=False):
+    if explore:
+        return learning.choose_action(hk, ds, tc, possible)
     basic = CHEAT_SHEET.get((hk, ds), "stand")
     learned = learning.best_action(hk, ds, tc, possible)
     if learned is not None:
@@ -100,12 +102,45 @@ def get_action(hk, ds, tc, learning, possible):
     return basic
 
 
+def state_action_key(learning, hk, ds, tc, action):
+    return f"{hk}|{ds}|{learning._tc_bucket(tc)}|{action}"
+
+
+def report_deviations(learning, min_samples=20, top_n=30):
+    print("\n=== Learned Deviations vs Basic Strategy ===")
+    found = []
+    tcs = [0, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]
+    for tc in tcs:
+        for (hk, ds), basic_action in CHEAT_SHEET.items():
+            basic_key = state_action_key(learning, hk, ds, tc, basic_action)
+            q_basic = learning.q.get(basic_key, 0.0)
+            c_basic = learning.counts.get(basic_key, 0)
+            for alt in ("hit", "stand", "double", "split"):
+                if alt == basic_action:
+                    continue
+                alt_key = state_action_key(learning, hk, ds, tc, alt)
+                c_alt = learning.counts.get(alt_key, 0)
+                if c_alt < min_samples:
+                    continue
+                q_alt = learning.q.get(alt_key, 0.0)
+                if q_alt > q_basic + 0.05:
+                    tc_label = learning._tc_bucket(tc)
+                    found.append((q_alt - q_basic, f"  TC {tc_label}: ({hk}, {ds}) {basic_action} -> {alt} (d={q_alt - q_basic:+.2f}, b={c_basic}, a={c_alt})"))
+    found.sort(reverse=True, key=lambda x: x[0])
+    for _, line in found[:top_n]:
+        print(line)
+    if not found:
+        print("  No deviations found (need more exploration)")
+    print(f"  Total candidates: {len(found)}")
+
+
 class Trainer:
-    def __init__(self):
+    def __init__(self, explore=False, epsilon=0.15):
         self.shoe = Shoe(DECKS_IN_SHOE)
         self.running_count = 0
         self.learning = LearningTable()
-        self.learning.epsilon = 0.0
+        self.learning.epsilon = epsilon
+        self.explore = explore
         self.hands_played = 0
         self.results = {"win": 0, "lose": 0, "draw": 0}
 
@@ -133,7 +168,7 @@ class Trainer:
         while hand_value(player_cards) < 21:
             hk, ds = self.get_state(player_cards, dealer_up)
             tc = self.true_count
-            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double"])
+            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double"], explore=self.explore)
             if action == "stand":
                 decisions.append((hk, ds, tc, "stand"))
                 break
@@ -169,7 +204,7 @@ class Trainer:
         if is_pair(player):
             hk, ds = self.get_state(player, dealer_up)
             tc = self.true_count
-            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double", "split"])
+            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double", "split"], explore=self.explore)
             if action == "split":
                 self.hands_played += 1
                 hand1, dec1 = self.play_single_hand([player[0], self.deal()], dealer_up)
@@ -223,6 +258,20 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 10000
-    t = Trainer()
+    n = 10000
+    explore = False
+    analyze = False
+    for arg in sys.argv[1:]:
+        if arg == "--explore":
+            explore = True
+        elif arg == "--analyze":
+            analyze = True
+        else:
+            try:
+                n = int(arg)
+            except ValueError:
+                pass
+    t = Trainer(explore=explore, epsilon=0.15 if explore else 0.0)
     t.run(n)
+    if analyze:
+        report_deviations(t.learning, min_samples=20)
