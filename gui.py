@@ -17,6 +17,7 @@ from PyQt5.QtCore import Qt
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from constant import SUPPORTED_LANGUAGE, LANGUAGE_MAP, CHEAT_SHEET, BET_AMOUNT
+from learner import LearningTable
 from blackjack import ProgramThread
 
 
@@ -125,6 +126,13 @@ class App(QWidget):
         self.wong_tc_input.setFixedWidth(150)
         self.reset_count_button = QPushButton("Reset Count")
         self.reset_count_button.clicked.connect(self.reset_count)
+        self.learning_label = QLabel("Machine Learning")
+        self.learning_label.setStyleSheet("font-weight: bold;")
+        self.learning_checkbox = QCheckBox("Enable ML Learning")
+        self.learning_checkbox.setChecked(False)
+        self.learning_samples_label = QLabel("ML Samples: 0")
+        self.reset_learning_button = QPushButton("Reset ML Data")
+        self.reset_learning_button.clicked.connect(self.reset_learning)
         input_layout.addWidget(self.betting_system_label, 8, 0, 1, 2)
         input_layout.addWidget(self.martingale_checkbox, 9, 0)
         input_layout.addWidget(self.martingale_steps_label, 9, 1)
@@ -134,6 +142,10 @@ class App(QWidget):
         input_layout.addWidget(self.wong_tc_label, 12, 0)
         input_layout.addWidget(self.wong_tc_input, 12, 1)
         input_layout.addWidget(self.reset_count_button, 13, 0)
+        input_layout.addWidget(self.learning_label, 14, 0, 1, 2)
+        input_layout.addWidget(self.learning_checkbox, 15, 0, 1, 2)
+        input_layout.addWidget(self.learning_samples_label, 16, 0)
+        input_layout.addWidget(self.reset_learning_button, 16, 1)
 
         # Cheat Sheet Layout
         self.cheat_sheet_layout = QVBoxLayout()
@@ -249,10 +261,13 @@ class App(QWidget):
                 self.martingale_checkbox.isChecked(), self.martingale_steps_input.value(),
                 self.card_counting_checkbox.isChecked(),
                 self.wonging_checkbox.isChecked(), self.wong_tc_input.value(),
+                self.learning_checkbox.isChecked(),
             )
             self.program_thread.countUpdated.connect(self.update_count)
             self.program_thread.statUpdated.connect(self.update_stat)
             self.program_thread.roundInformUpdated.connect(self.update_round_info)
+            self.program_thread.learnUpdated.connect(self.update_learning)
+            self.learning_samples_label.setText(f"ML Samples: {self.program_thread.learning_table.total_samples}")
             self.program_thread.start()
         else:
             self.stop_program()
@@ -268,6 +283,11 @@ class App(QWidget):
     def reset_count(self):
         if hasattr(self, "program_thread"):
             self.program_thread.reset_count()
+
+    def reset_learning(self):
+        table = LearningTable()
+        table.clear()
+        self.learning_samples_label.setText("ML Samples: 0")
 
     def update_stat(self, bet_rate, condition):
         self.total_hand += 1
@@ -309,6 +329,9 @@ class App(QWidget):
         self.dealer_card_label.setText(f"Dealer Card: {dealer_card}")
         self.player_cards_label.setText(f"Player Cards: {player_cards}")
         self.strategy_label.setText(f"Strategy: {strategy}")
+
+    def update_learning(self, samples):
+        self.learning_samples_label.setText(f"ML Samples: {samples}")
 
     def update_count(self, running, true, decks):
         self.running_count_label.setText(f"Running Count: {running}")

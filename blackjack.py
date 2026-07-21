@@ -6,6 +6,7 @@ from cv2 import resize, matchTemplate, TM_CCOEFF_NORMED, minMaxLoc
 from PyQt5.QtCore import QThread, pyqtSignal
 from utils import safe_imread, grab_screen
 from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout, BET_AMOUNT, HILO_COUNT, I18_DEVIATIONS, INSURANCE_TC, DECKS_IN_SHOE
+from learner import LearningTable
 
 
 def is_close(pt1, pt2, threshold=8):
@@ -50,11 +51,13 @@ class ProgramThread(QThread):
     statUpdated = pyqtSignal(float, str)
     roundInformUpdated = pyqtSignal(str, str, str)
     countUpdated = pyqtSignal(int, float, float)
+    learnUpdated = pyqtSignal(int)
 
     def __init__(self, bet_amount, language, resolution="1920x1080",
                  martingale=False, martingale_max_steps=4,
                  card_counting=False,
-                 wonging=False, wong_tc_threshold=-2):
+                 wonging=False, wong_tc_threshold=-2,
+                 learning=False):
         super().__init__()
         self.bet_amount = bet_amount
         self.language = language
@@ -68,6 +71,9 @@ class ProgramThread(QThread):
         self.card_counting = card_counting
         self.wonging = wonging
         self.wong_tc_threshold = wong_tc_threshold
+        self.learning = learning
+        self.learning_table = LearningTable()
+        self._pending_decisions = []
         self.running_count = 0
         self.cards_seen = 0
         self.martingale_step = 0
@@ -131,9 +137,13 @@ class ProgramThread(QThread):
     def true_count(self):
         return self.running_count / self.decks_remaining
 
-    def get_adjusted_strategy(self, hand_key, dealer_card_num_str, basic_strategy):
+    def get_adjusted_strategy(self, hand_key, dealer_card_num_str, basic_strategy, possible_actions=None):
         if not self.card_counting:
             return basic_strategy
+        if self.learning and possible_actions:
+            learned = self.learning_table.best_action(hand_key, dealer_card_num_str, self.true_count, possible_actions)
+            if learned is not None:
+                return learned
         key = (hand_key, dealer_card_num_str)
         if key in I18_DEVIATIONS:
             deviation_action, min_tc = I18_DEVIATIONS[key]
@@ -155,6 +165,13 @@ class ProgramThread(QThread):
 
     def _handle_result(self, amount_rate, outcome):
         self.statUpdated.emit(amount_rate, outcome)
+        if self.learning and self._pending_decisions and (not self.split_active or self.split_round == 2):
+            outcome_key = "win" if outcome == "win" else "lose" if outcome == "lose" else "draw"
+            while self._pending_decisions:
+                h, d, tc, a = self._pending_decisions.pop(0)
+                self.learning_table.record(h, d, tc, a, outcome_key)
+            self.learning_table.save()
+            self.learnUpdated.emit(self.learning_table.total_samples)
         if self.split_active and self.split_round == 2:
             self.split_active = False
             self.split_round = 0
@@ -297,10 +314,13 @@ class ProgramThread(QThread):
                     ]
                 except KeyError:
                     strategy = "stand"
+                hand_key = card_suite_from_two_card_num(card_num1, card_num2)
                 strategy = self.get_adjusted_strategy(
-                    card_suite_from_two_card_num(card_num1, card_num2),
-                    dealer_card_num_str, strategy
+                    hand_key, dealer_card_num_str, strategy,
+                    ["hit", "stand", "double", "split"] if "," in hand_key else ["hit", "stand", "double"]
                 )
+                if self.learning:
+                    self._pending_decisions.append((hand_key, dealer_card_num_str, self.true_count, strategy))
                 if strategy == "double":
                     self.is_doubled = True
                 if strategy == "split":
@@ -383,10 +403,13 @@ class ProgramThread(QThread):
                 except KeyError:
                     strategy = "stand"
                 strategy = self.get_adjusted_strategy(
-                    str(total_points), dealer_card_num_str, strategy
+                    str(total_points), dealer_card_num_str, strategy,
+                    ["hit", "stand"]
                 )
                 if strategy == "double":
                     strategy = "hit"
+                if self.learning:
+                    self._pending_decisions.append((str(total_points), dealer_card_num_str, self.true_count, strategy))
                 self.roundInformUpdated.emit(dealer_card, ",".join(cards), strategy)
                 self.emit_count()
                 self.clickz(self.layout["OP_POS"][strategy])
