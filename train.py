@@ -94,17 +94,20 @@ def cheat_key(hk):
 
 
 def get_action(hk, ds, tc, learning, possible, explore=False):
-    if explore:
-        return learning.choose_action(hk, ds, tc, possible)
     basic = CHEAT_SHEET.get((hk, ds), CHEAT_SHEET.get((cheat_key(hk), ds), "stand"))
-    learned = learning.best_action(hk, ds, tc, possible)
-    if learned is not None:
-        return learned
     key = (hk, ds)
     if key in I18_DEVIATIONS:
         dev_action, min_tc = I18_DEVIATIONS[key]
         if tc >= min_tc and dev_action in possible:
-            return dev_action
+            basic = dev_action
+
+    if explore and random.random() < learning.epsilon:
+        return random.choice(possible)
+
+    learned = learning.best_action(hk, ds, tc, possible)
+    if learned is not None:
+        return learned
+
     return basic
 
 
@@ -164,6 +167,8 @@ class Trainer:
         self.learning.epsilon = epsilon
         self.explore = explore
         self.hands_played = 0
+        self.total_units = 0.0
+        self.tc_log = []
         self.results = {"win": 0, "lose": 0, "draw": 0}
 
     @property
@@ -215,12 +220,17 @@ class Trainer:
     def play_hand(self):
         player = [self.deal(), self.deal()]
         dealer_up = self.deal()
+        tc_here = self.true_count
 
         if hand_value(player) == 21:
             dealer_down = self.deal()
             if hand_value([dealer_up, dealer_down]) != 21:
+                self.total_units += 1.5
                 self.results["win"] += 1
+            else:
+                self.results["draw"] += 1
             self.hands_played += 1
+            self.tc_log.append(tc_here)
             return
 
         dealer_down = self.deal()
@@ -239,6 +249,8 @@ class Trainer:
                 for hand, decisions in [(hand1, dec1), (hand2, dec2)]:
                     pv = hand_value(hand)
                     R = final_reward(pv, dv)
+                    units = 2 if any(a == "double" for _, _, _, a in decisions) else 1
+                    self.total_units += R * units
                     self.mc_update(decisions, R)
                     rewards.append(R)
                     outcome = "win" if R == 1 else "lose" if R == -1 else "draw"
@@ -247,6 +259,7 @@ class Trainer:
                 net = sum(rewards)
                 split_outcome = "win" if net > 0 else "lose" if net < 0 else "draw"
                 self.learning.record(hk, ds, tc, "split", split_outcome)
+                self.tc_log.append(tc_here)
                 return
 
         player, decisions = self.play_single_hand(player, dealer_up)
@@ -258,10 +271,13 @@ class Trainer:
             dv = hand_value(dealer_cards)
             R = final_reward(pv, dv)
 
+        units = 2 if any(a == "double" for _, _, _, a in decisions) else 1
+        self.total_units += R * units
         self.mc_update(decisions, R)
         self.hands_played += 1
         outcome = "win" if R == 1 else "lose" if R == -1 else "draw"
         self.results[outcome] += 1
+        self.tc_log.append(tc_here)
 
     def run(self, num_hands, progress=True):
         start = time()
@@ -275,17 +291,45 @@ class Trainer:
 
             if progress and (i + 1) % report_interval == 0:
                 pct = (i + 1) / num_hands * 100
-                wr = self.results["win"] / max(1, self.hands_played) * 100
-                sys.stdout.write(f"\r{pct:.0f}% | hands: {self.hands_played} | win: {wr:.1f}% | samples: {self.learning.total_samples}")
+                roi = self.total_units / max(1, self.hands_played) * 1000
+                sys.stdout.write(f"\r{pct:.0f}% | hands: {self.hands_played} | ROI/1k: {roi:.2f} | samples: {self.learning.total_samples}")
                 sys.stdout.flush()
 
         elapsed = time() - start
         self.learning.save()
 
-        wr = self.results["win"] / max(1, self.hands_played) * 100
-        print(f"\nDone in {elapsed:.1f}s | {self.hands_played} hands | win rate: {wr:.1f}% | ML samples: {self.learning.total_samples}")
-        print(f"Wins: {self.results['win']} | Losses: {self.results['lose']} | Draws: {self.results['draw']}")
+        roi = self.total_units / max(1, self.hands_played) * 1000
+        print(f"\nDone in {elapsed:.1f}s | {self.hands_played} hands | ROI/1k: {roi:.2f} units | ML samples: {self.learning.total_samples}")
+        print(f"Wins: {self.results['win']} | Losses: {self.results['lose']} | Draws: {self.results['draw']} | Net: {self.total_units:+.1f}")
 
+
+def report_edge_validation(trainer):
+    n = trainer.hands_played
+    if n == 0:
+        return
+    avg_tc = sum(trainer.tc_log) / n
+    theoretical_edge = -0.005 + avg_tc * 0.005
+    actual_edge = trainer.total_units / n
+    print(f"\n=== Edge Validation ===")
+    print(f"Avg True Count: {avg_tc:.2f}")
+    print(f"Theoretical edge/hand: {theoretical_edge*100:+.3f}%")
+    print(f"Actual edge/hand: {actual_edge*100:+.3f}%")
+    print(f"Theoretical ROI/1k hands: {theoretical_edge*1000:+.2f} units")
+    print(f"Actual ROI/1k hands: {actual_edge*1000:+.2f} units")
+    diff = actual_edge - theoretical_edge
+    print(f"Edge difference (actual - theoretical): {diff*100:+.3f}%")
+    print(f"Total net units: {trainer.total_units:+.1f}")
+    wr = trainer.results["win"] / n * 100
+    print(f"Win rate: {wr:.2f}%")
+    from collections import Counter
+    tc_buckets = Counter(round(tc * 2) / 2 for tc in trainer.tc_log)
+    print(f"\nTC distribution (hands dealt):")
+    for tc in sorted(tc_buckets):
+        freq = tc_buckets[tc] / n * 100
+        te = -0.005 + tc * 0.005
+        print(f"  TC {tc:+.1f}: {tc_buckets[tc]:6d} ({freq:4.1f}%)  theoretical edge: {te*100:+.3f}%")
+    if hasattr(trainer.learning, 'report_tc_distribution'):
+        trainer.learning.report_tc_distribution()
 
 if __name__ == "__main__":
     n = 10000
@@ -296,12 +340,18 @@ if __name__ == "__main__":
             explore = True
         elif arg == "--analyze":
             analyze = True
+        elif arg == "--validate":
+            analyze = True
         else:
             try:
                 n = int(arg)
             except ValueError:
                 pass
+    if analyze and n < 500000:
+        print(f"Note: {n} hands may not be enough for high-TC state convergence.")
+        print(f"Recommend: increase to 5,000,000-10,000,000 for ~4-9 min training")
     t = Trainer(explore=explore, epsilon=0.15 if explore else 0.0)
     t.run(n)
     if analyze:
         report_deviations(t.learning, min_samples=20)
+        report_edge_validation(t)

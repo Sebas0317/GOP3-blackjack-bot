@@ -57,7 +57,8 @@ class ProgramThread(QThread):
                  martingale=False, martingale_max_steps=4,
                  card_counting=False,
                  wonging=False, wong_tc_threshold=-2,
-                 learning=False):
+                 learning=False,
+                 kelly_betting=False, bankroll=1000):
         super().__init__()
         self.bet_amount = bet_amount
         self.language = language
@@ -72,6 +73,8 @@ class ProgramThread(QThread):
         self.wonging = wonging
         self.wong_tc_threshold = wong_tc_threshold
         self.learning = learning
+        self.kelly_betting = kelly_betting
+        self.bankroll = bankroll
         self.learning_table = LearningTable()
         self._pending_decisions = []
         self._pending_round = 0
@@ -137,18 +140,29 @@ class ProgramThread(QThread):
         elif tc >= 1: return 1.5
         return 1
 
+    def kelly_bet_multiplier(self):
+        if not self.card_counting:
+            return 1
+        tc = self.true_count
+        edge = -0.005 + tc * 0.005
+        if edge <= 0:
+            return 1
+        variance = 1.21
+        kelly_frac = 0.5 * edge / variance
+        return max(1, kelly_frac * self.bankroll)
+
     def get_adjusted_strategy(self, hand_key, dealer_card_num_str, basic_strategy, possible_actions=None):
         if not self.card_counting:
             return basic_strategy
+        key = (hand_key, dealer_card_num_str)
+        if key in I18_DEVIATIONS:
+            dev_action, min_tc = I18_DEVIATIONS[key]
+            if self.true_count >= min_tc:
+                basic_strategy = dev_action
         if self.learning and possible_actions:
             learned = self.learning_table.best_action(hand_key, dealer_card_num_str, self.true_count, possible_actions)
             if learned is not None:
                 return learned
-        key = (hand_key, dealer_card_num_str)
-        if key in I18_DEVIATIONS:
-            deviation_action, min_tc = I18_DEVIATIONS[key]
-            if self.true_count >= min_tc:
-                return deviation_action
         return basic_strategy
 
     def current_bet_key(self):
@@ -157,7 +171,10 @@ class ProgramThread(QThread):
         if self.martingale and self.martingale_step > 0:
             total_mult *= (2 ** self.martingale_step)
         if self.card_counting:
-            total_mult *= self.bet_multiplier()
+            if self.kelly_betting:
+                total_mult *= self.kelly_bet_multiplier()
+            else:
+                total_mult *= self.bet_multiplier()
         target = base_val * total_mult
         best = self.bet_amount
         best_diff = float("inf")

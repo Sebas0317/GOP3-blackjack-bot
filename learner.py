@@ -32,14 +32,21 @@ class LearningTable:
     def _action_key(self, state_key, action):
         return f"{state_key}|{action}"
 
+    def _min_samples(self, tc):
+        if tc >= 5: return 2000
+        if tc >= 3: return 1000
+        if tc >= 1: return 500
+        return 200
+
     def best_action(self, hand, dealer, tc, actions):
         sk = self._state_key(hand, dealer, tc)
         best = None
         best_q = float("-inf")
+        min_s = self._min_samples(tc)
         for a in actions:
             key = self._action_key(sk, a)
             count = self.counts.get(key, 0)
-            if count < 20:
+            if count < min_s:
                 continue
             q = self.q.get(key, 0.0)
             if q > best_q:
@@ -50,7 +57,10 @@ class LearningTable:
     def choose_action(self, hand, dealer, tc, actions):
         if random.random() < self.epsilon:
             return random.choice(actions)
-        return self.best_action(hand, dealer, tc, actions)
+        q_action = self.best_action(hand, dealer, tc, actions)
+        if q_action is not None:
+            return q_action
+        return random.choice(actions)
 
     def record(self, hand, dealer, tc, action, result):
         reward = 1 if result == "win" else -1 if result == "lose" else 0
@@ -90,6 +100,24 @@ class LearningTable:
                 self.q = {k: float(v) for k, v in data.items()}
         except Exception as e:
             print(f"Failed to load {self.filepath}: {e}")
+
+    def samples_by_tc_bucket(self):
+        buckets = {}
+        for key, count in self.counts.items():
+            tc = key.split("|")[2] if "|" in key else "?"
+            buckets[tc] = buckets.get(tc, 0) + count
+        return buckets
+
+    def report_tc_distribution(self):
+        buckets = self.samples_by_tc_bucket()
+        total = sum(buckets.values())
+        print(f"\n=== Sample Distribution by TC Bucket (total: {total}) ===")
+        for tc in sorted(buckets.keys(), key=lambda x: (len(x), x)):
+            pct = buckets[tc] / total * 100
+            print(f"  TC {tc:>3s}: {buckets[tc]:>8d} ({pct:5.1f}%)")
+        high_tc = sum(v for k, v in buckets.items() if k in ("5", "6", "7"))
+        print(f"\n  TC >= 3 total: {sum(v for k, v in buckets.items() if k in ('3','4','5','6','7')):>8d} ({sum(v for k, v in buckets.items() if k in ('3','4','5','6','7'))/total*100:.1f}%)")
+        print(f"  TC >= 5 total: {high_tc:>8d} ({high_tc/total*100:.1f}%)")
 
     def clear(self):
         self.q = {}

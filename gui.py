@@ -133,6 +133,13 @@ class App(QWidget):
         self.learning_samples_label = QLabel("ML Samples: 0")
         self.reset_learning_button = QPushButton("Reset ML Data")
         self.reset_learning_button.clicked.connect(self.reset_learning)
+        self.kelly_checkbox = QCheckBox("Kelly Betting (Half-Kelly)")
+        self.kelly_checkbox.setChecked(False)
+        self.bankroll_label = QLabel("Bankroll (base bets):")
+        self.bankroll_input = QSpinBox()
+        self.bankroll_input.setRange(100, 100000)
+        self.bankroll_input.setValue(1000)
+        self.bankroll_input.setFixedWidth(150)
         input_layout.addWidget(self.betting_system_label, 8, 0, 1, 2)
         input_layout.addWidget(self.martingale_checkbox, 9, 0)
         input_layout.addWidget(self.martingale_steps_label, 9, 1)
@@ -142,10 +149,13 @@ class App(QWidget):
         input_layout.addWidget(self.wong_tc_label, 12, 0)
         input_layout.addWidget(self.wong_tc_input, 12, 1)
         input_layout.addWidget(self.reset_count_button, 13, 0)
-        input_layout.addWidget(self.learning_label, 14, 0, 1, 2)
-        input_layout.addWidget(self.learning_checkbox, 15, 0, 1, 2)
-        input_layout.addWidget(self.learning_samples_label, 16, 0)
-        input_layout.addWidget(self.reset_learning_button, 16, 1)
+        input_layout.addWidget(self.kelly_checkbox, 14, 0, 1, 2)
+        input_layout.addWidget(self.bankroll_label, 15, 0)
+        input_layout.addWidget(self.bankroll_input, 15, 1)
+        input_layout.addWidget(self.learning_label, 16, 0, 1, 2)
+        input_layout.addWidget(self.learning_checkbox, 17, 0, 1, 2)
+        input_layout.addWidget(self.learning_samples_label, 18, 0)
+        input_layout.addWidget(self.reset_learning_button, 18, 1)
 
         # Cheat Sheet Layout
         self.cheat_sheet_layout = QVBoxLayout()
@@ -262,6 +272,7 @@ class App(QWidget):
                 self.card_counting_checkbox.isChecked(),
                 self.wonging_checkbox.isChecked(), self.wong_tc_input.value(),
                 self.learning_checkbox.isChecked(),
+                self.kelly_checkbox.isChecked(), self.bankroll_input.value(),
             )
             self.program_thread.countUpdated.connect(self.update_count)
             self.program_thread.statUpdated.connect(self.update_stat)
