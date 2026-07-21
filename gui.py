@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QGraphicsView,
     QGraphicsScene,
-    QComboBox, QStyledItemDelegate,
+    QComboBox, QStyledItemDelegate, QCheckBox, QSpinBox,
 )
 from PyQt5.QtGui import QIntValidator
 from PyQt5.QtCore import Qt
@@ -104,6 +104,20 @@ class App(QWidget):
         input_layout.addWidget(self.stop_win_input, 6, 1)
         input_layout.addWidget(self.stop_lose_label, 7, 0)
         input_layout.addWidget(self.stop_lose_input, 7, 1)
+
+        self.betting_system_label = QLabel("Betting System")
+        self.betting_system_label.setStyleSheet("font-weight: bold;")
+        self.martingale_checkbox = QCheckBox("Enable Martingale")
+        self.martingale_checkbox.setChecked(False)
+        self.martingale_steps_label = QLabel("Max Martingale Steps:")
+        self.martingale_steps_input = QSpinBox()
+        self.martingale_steps_input.setRange(1, 10)
+        self.martingale_steps_input.setValue(4)
+        self.martingale_steps_input.setFixedWidth(150)
+        input_layout.addWidget(self.betting_system_label, 8, 0, 1, 2)
+        input_layout.addWidget(self.martingale_checkbox, 9, 0)
+        input_layout.addWidget(self.martingale_steps_label, 9, 1)
+        input_layout.addWidget(self.martingale_steps_input, 9, 2)
 
         # Cheat Sheet Layout
         self.cheat_sheet_layout = QVBoxLayout()
@@ -208,7 +222,10 @@ class App(QWidget):
             self.stop_net_profit = int(self.stop_win_input.text())
             self.stop_net_lose = int(self.stop_lose_input.text())
             self.language = LANGUAGE_MAP[self.language_input.currentText()]
-            self.program_thread = ProgramThread(self.bet_amount, self.language, self.resolution_input.currentText())
+            self.program_thread = ProgramThread(
+                self.bet_amount, self.language, self.resolution_input.currentText(),
+                self.martingale_checkbox.isChecked(), self.martingale_steps_input.value(),
+            )
             self.program_thread.statUpdated.connect(self.update_stat)
             self.program_thread.roundInformUpdated.connect(self.update_round_info)
             self.program_thread.start()

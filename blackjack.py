@@ -5,7 +5,7 @@ import pyautogui
 from cv2 import resize, matchTemplate, TM_CCOEFF_NORMED, minMaxLoc
 from PyQt5.QtCore import QThread, pyqtSignal
 from utils import safe_imread, grab_screen
-from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout
+from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout, BET_AMOUNT
 
 
 def is_close(pt1, pt2, threshold=8):
@@ -50,7 +50,8 @@ class ProgramThread(QThread):
     statUpdated = pyqtSignal(float, str)
     roundInformUpdated = pyqtSignal(str, str, str)
 
-    def __init__(self, bet_amount, language, resolution="1920x1080"):
+    def __init__(self, bet_amount, language, resolution="1920x1080",
+                 martingale=False, martingale_max_steps=4):
         super().__init__()
         self.bet_amount = bet_amount
         self.language = language
@@ -59,6 +60,10 @@ class ProgramThread(QThread):
         self.layout = compute_layout(width, height)
         self.card_images = {}
         self.image_prefix = "image/" + self.language + "/"
+        self.martingale = martingale
+        self.martingale_max_steps = martingale_max_steps
+        self.martingale_step = 0
+        self.bet_keys = list(BET_AMOUNT.keys())
         for num in NUMBER:
             for col in COLOR:
                 card_name = col + num
@@ -76,6 +81,13 @@ class ProgramThread(QThread):
         pyautogui.click(x, y, button="left", duration=0.05)
         pyautogui.moveTo(self.layout["WINDOW_WIDTH"] / 2, self.layout["WINDOW_HEIGHT"] / 2, duration=0.05)
 
+    def current_bet_key(self):
+        if not self.martingale or self.martingale_step == 0:
+            return self.bet_amount
+        idx = min(self.bet_keys.index(self.bet_amount) + self.martingale_step,
+                  len(self.bet_keys) - 1)
+        return self.bet_keys[idx]
+
     def run(self):
         is_doubled = False
         split_round = 0
@@ -88,7 +100,7 @@ class ProgramThread(QThread):
         double = safe_imread(self.image_prefix + "double.png", 0)
         stand = safe_imread(self.image_prefix + "stand.png", 0)
         blackjack = safe_imread(self.image_prefix + "blackjack.png", 0)
-        bet = safe_imread(r"image/bet/bet" + self.bet_amount + ".png", 0)
+        bet = safe_imread(r"image/bet/bet" + self.current_bet_key() + ".png", 0)
 
         while self.running:
             screen = grab_screen()
@@ -107,6 +119,8 @@ class ProgramThread(QThread):
                     split_round = 2
                 else:
                     is_doubled = False
+                    if self.martingale:
+                        self.martingale_step = 0
                 sleep(2)
             elif self.compare(lose, screen):
                 amount_rate = 1
@@ -121,6 +135,8 @@ class ProgramThread(QThread):
                     split_round = 2
                 else:
                     is_doubled = False
+                    if self.martingale:
+                        self.martingale_step = min(self.martingale_step + 1, self.martingale_max_steps)
                 sleep(2)
             elif self.compare(bust, screen):
                 _, y = self.compare(bust, screen)
@@ -138,6 +154,8 @@ class ProgramThread(QThread):
                     split_round = 2
                 else:
                     is_doubled = False
+                    if self.martingale:
+                        self.martingale_step = min(self.martingale_step + 1, self.martingale_max_steps)
                 sleep(2)
             elif self.compare(draw, screen):
                 amount_rate = 1
@@ -167,6 +185,8 @@ class ProgramThread(QThread):
                     split_round = 2
                 else:
                     is_doubled = False
+                    if self.martingale:
+                        self.martingale_step = 0
                 sleep(2)
             elif self.compare(double, screen):
                 # It's the first round
@@ -318,6 +338,9 @@ class ProgramThread(QThread):
             elif self.compare(bet, screen) is not None:
                 loc = self.compare(bet, screen)
                 self.clickz(loc)
+                if self.martingale and self.martingale_step > 0:
+                    self.bet_amount = self.current_bet_key()
+                    bet = safe_imread(r"image/bet/bet" + self.bet_amount + ".png", 0)
 
     def stop(self):
         self.terminate()
