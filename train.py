@@ -49,6 +49,16 @@ def is_pair(cards):
     return len(cards) == 2 and card_value(cards[0]) == card_value(cards[1])
 
 
+def final_reward(player_value, dealer_value):
+    if player_value > 21:
+        return -1
+    if dealer_value > 21 or player_value > dealer_value:
+        return 1
+    if player_value < dealer_value:
+        return -1
+    return 0
+
+
 class Shoe:
     def __init__(self, decks=6, penetration=0.75):
         self.decks = decks
@@ -71,12 +81,31 @@ class Shoe:
         return self.cards_dealt >= max_dealt
 
 
+def dealer_play(shoe, cards):
+    while hand_value(cards) < 17:
+        cards.append(shoe.deal())
+    return cards
+
+
+def get_action(hk, ds, tc, learning, possible):
+    basic = CHEAT_SHEET.get((hk, ds), "stand")
+    learned = learning.best_action(hk, ds, tc, possible)
+    if learned is not None:
+        return learned
+    key = (hk, ds)
+    if key in I18_DEVIATIONS:
+        dev_action, min_tc = I18_DEVIATIONS[key]
+        if tc >= min_tc and dev_action in possible:
+            return dev_action
+    return basic
+
+
 class Trainer:
     def __init__(self):
         self.shoe = Shoe(DECKS_IN_SHOE)
         self.running_count = 0
         self.learning = LearningTable()
-        self.pending = []
+        self.learning.epsilon = 0.0
         self.hands_played = 0
         self.results = {"win": 0, "lose": 0, "draw": 0}
 
@@ -96,35 +125,32 @@ class Trainer:
         self.update_count(rank)
         return rank
 
-    def get_strategy(self, h_key, d_str):
-        basic = CHEAT_SHEET.get((h_key, d_str), "stand")
-        learned = self.learning.best_action(h_key, d_str, self.true_count, ["hit", "stand", "double", "split"])
-        if learned is not None:
-            return learned
-        key = (h_key, d_str)
-        if key in I18_DEVIATIONS:
-            dev_action, min_tc = I18_DEVIATIONS[key]
-            if self.true_count >= min_tc:
-                return dev_action
-        return basic
+    def get_state(self, cards, dealer_up):
+        return hand_key(cards), dealer_str(dealer_up)
 
-    def record(self, outcome):
-        for h, d, tc, a in self.pending:
-            self.learning.record(h, d, tc, a, outcome)
-        self.pending = []
-
-    def play_player_hand(self, cards, dealer_up_str):
-        while hand_value(cards) < 21:
-            hk = hand_key(cards)
-            action = self.get_strategy(hk, dealer_up_str)
-            self.pending.append((hk, dealer_up_str, self.true_count, action))
+    def play_single_hand(self, player_cards, dealer_up):
+        decisions = []
+        while hand_value(player_cards) < 21:
+            hk, ds = self.get_state(player_cards, dealer_up)
+            tc = self.true_count
+            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double"])
             if action == "stand":
+                decisions.append((hk, ds, tc, "stand"))
                 break
-            elif action == "double" or action == "split":
-                cards.append(self.deal())
+            elif action == "double":
+                player_cards.append(self.deal())
+                decisions.append((hk, ds, tc, "double"))
                 break
-            else:  # hit
-                cards.append(self.deal())
+            else:
+                player_cards.append(self.deal())
+                decisions.append((hk, ds, tc, "hit"))
+                if hand_value(player_cards) > 21:
+                    break
+        return player_cards, decisions
+
+    def mc_update(self, decisions, R):
+        for hk, ds, tc, action in decisions:
+            self.learning.record(hk, ds, tc, action, "win" if R == 1 else "lose" if R == -1 else "draw")
 
     def play_hand(self):
         player = [self.deal(), self.deal()]
@@ -139,61 +165,38 @@ class Trainer:
 
         dealer_down = self.deal()
         dealer_cards = [dealer_up, dealer_down]
-        dealer_up_str = dealer_str(dealer_up)
 
-        # Check for split
         if is_pair(player):
-            hk = hand_key(player)
-            action = self.get_strategy(hk, dealer_up_str)
+            hk, ds = self.get_state(player, dealer_up)
+            tc = self.true_count
+            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double", "split"])
             if action == "split":
                 self.hands_played += 1
-                hands = [[player[0], self.deal()], [player[1], self.deal()]]
-                for hand in hands:
-                    self.play_player_hand(hand, dealer_up_str)
-
-                # Dealer plays once
-                while hand_value(dealer_cards) < 17:
-                    dealer_cards.append(self.deal())
+                hand1, dec1 = self.play_single_hand([player[0], self.deal()], dealer_up)
+                hand2, dec2 = self.play_single_hand([player[1], self.deal()], dealer_up)
+                dealer_play(self, dealer_cards)
                 dv = hand_value(dealer_cards)
-
-                for hand in hands:
+                for hand, decisions in [(hand1, dec1), (hand2, dec2)]:
                     pv = hand_value(hand)
-                    if pv > 21:
-                        outcome = "lose"
-                    elif dv > 21 or pv > dv:
-                        outcome = "win"
-                    elif pv < dv:
-                        outcome = "lose"
-                    else:
-                        outcome = "draw"
-                    self.record(outcome)
+                    R = final_reward(pv, dv)
+                    self.mc_update(decisions, R)
+                    outcome = "win" if R == 1 else "lose" if R == -1 else "draw"
                     self.results[outcome] += 1
                 return
 
-        # Non-split hand
-        self.play_player_hand(player, dealer_up_str)
-
+        player, decisions = self.play_single_hand(player, dealer_up)
         pv = hand_value(player)
         if pv > 21:
-            self.record("lose")
-            self.results["lose"] += 1
-            self.hands_played += 1
-            return
-
-        while hand_value(dealer_cards) < 17:
-            dealer_cards.append(self.deal())
-
-        dv = hand_value(dealer_cards)
-        if dv > 21 or pv > dv:
-            outcome = "win"
-        elif pv < dv:
-            outcome = "lose"
+            R = -1
         else:
-            outcome = "draw"
+            dealer_play(self, dealer_cards)
+            dv = hand_value(dealer_cards)
+            R = final_reward(pv, dv)
 
-        self.record(outcome)
-        self.results[outcome] += 1
+        self.mc_update(decisions, R)
         self.hands_played += 1
+        outcome = "win" if R == 1 else "lose" if R == -1 else "draw"
+        self.results[outcome] += 1
 
     def run(self, num_hands, progress=True):
         start = time()
