@@ -193,72 +193,86 @@ class ProgramThread(QThread):
             if self.compare(win, screen):
                 amount_rate = 2 if self.is_doubled else 1
                 self._handle_result(amount_rate, "win")
-                sleep(2)
+                sleep(0.8)
             elif self.compare(lose, screen):
                 amount_rate = 2 if self.is_doubled else 1
                 self._handle_result(amount_rate, "lose")
-                sleep(2)
+                sleep(0.8)
             elif self.compare(bust, screen):
                 _, y = self.compare(bust, screen)
                 if y < self.layout["WINDOW_HEIGHT"] / 2:
                     continue
                 amount_rate = 2 if self.is_doubled else 1
                 self._handle_result(amount_rate, "lose")
-                sleep(2)
+                sleep(0.8)
             elif self.compare(draw, screen):
                 amount_rate = 2 if self.is_doubled else 1
                 self._handle_result(amount_rate, "draw")
-                sleep(2)
+                sleep(0.8)
             elif self.compare(blackjack, screen):
                 _, y = self.compare(blackjack, screen)
                 if y < self.layout["WINDOW_HEIGHT"] / 2:
                     continue
                 self._handle_result(1.5, "win")
-                sleep(2)
+                sleep(0.8)
             elif self.compare(double, screen):
-                # It's the first round
+                # It's the first round - collect all card candidates with position dedup
+                candidates = []
+                for card_name, card_image in self.card_images.items():
+                    res = matchTemplate(screen, card_image, TM_CCOEFF_NORMED)
+                    loc = np_where(res >= 0.9)
+                    for x, y in zip(*loc[::-1]):
+                        val = res[y, x]
+                        dup = any(is_close((x, y), (cx, cy), 12) for _, cx, cy, _ in candidates)
+                        if dup:
+                            existing = [(i, cv) for i, (cn, cx, cy, cv) in enumerate(candidates) if is_close((x, y), (cx, cy), 12)]
+                            if existing:
+                                idx, old_val = existing[0]
+                                if val > old_val:
+                                    candidates[idx] = (card_name, x, y, val)
+                        else:
+                            candidates.append((card_name, x, y, val))
+                if not candidates:
+                    continue
                 first_card = ""
                 second_card = ""
                 dealer_card = ""
-                for card_name, card_image in self.card_images.items():
-                    res = matchTemplate(screen, card_image, TM_CCOEFF_NORMED)
-                    loc = np_where(res >= 0.95)
-                    for x, y in zip(*loc[::-1]):
-                        if y < self.layout["WINDOW_HEIGHT"] / 2:
+                for card_name, x, y, _ in candidates:
+                    self.update_count(card_name)
+                    if y < self.layout["WINDOW_HEIGHT"] / 2:
+                        if not dealer_card:
                             dealer_card = card_name
-                            self.update_count(card_name)
-                        else:
-                            self.update_count(card_name)
-                            if self.split_round:
-                                if self.split_round == 1:
-                                    first_minn_x, first_maxx_x = (
-                                        self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"]
-                                    )
-                                    second_minn_x, second_maxx_x = (
-                                        self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"]
-                                    )
-                                    if first_minn_x < x < first_maxx_x:
-                                        first_card = card_name
-                                    elif second_minn_x < x < second_maxx_x:
-                                        second_card = card_name
-                                elif self.split_round == 2:
-                                    first_minn_x, first_maxx_x = (
-                                        self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"]
-                                    )
-                                    second_minn_x, second_maxx_x = (
-                                        self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"]
-                                    )
-                                    if first_minn_x < x < first_maxx_x:
-                                        first_card = card_name
-                                    elif second_minn_x < x < second_maxx_x:
-                                        second_card = card_name
-                            else:
-                                first_minn_x, first_maxx_x = self.layout["FIRST_HAND_X"]
-                                second_minn_x, second_maxx_x = self.layout["SECOND_HAND_X"]
-                                if first_minn_x < x < first_maxx_x:
+                    else:
+                        if self.split_round:
+                            if self.split_round == 1:
+                                first_minn_x, first_maxx_x = (
+                                    self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"]
+                                )
+                                second_minn_x, second_maxx_x = (
+                                    self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"]
+                                )
+                                if not first_card and first_minn_x < x < first_maxx_x:
                                     first_card = card_name
-                                elif second_minn_x < x < second_maxx_x:
+                                elif not second_card and second_minn_x < x < second_maxx_x:
                                     second_card = card_name
+                            elif self.split_round == 2:
+                                first_minn_x, first_maxx_x = (
+                                    self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"]
+                                )
+                                second_minn_x, second_maxx_x = (
+                                    self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"]
+                                )
+                                if not first_card and first_minn_x < x < first_maxx_x:
+                                    first_card = card_name
+                                elif not second_card and second_minn_x < x < second_maxx_x:
+                                    second_card = card_name
+                        else:
+                            first_minn_x, first_maxx_x = self.layout["FIRST_HAND_X"]
+                            second_minn_x, second_maxx_x = self.layout["SECOND_HAND_X"]
+                            if not first_card and first_minn_x < x < first_maxx_x:
+                                first_card = card_name
+                            elif not second_card and second_minn_x < x < second_maxx_x:
+                                second_card = card_name
                     if dealer_card and first_card and second_card:
                         break
                 if "" in [first_card, second_card, dealer_card]:
@@ -271,7 +285,7 @@ class ProgramThread(QThread):
                         dealer_card, first_card + "," + second_card, "stand"
                     )
                     self.clickz(self.layout["OP_POS"]["stand"])
-                    sleep(1)
+                    sleep(0.5)
                     continue
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
                 try:
@@ -308,41 +322,47 @@ class ProgramThread(QThread):
                 self.clickz(self.layout["OP_POS"][strategy])
             elif self.compare(stand, screen):
                 # which means it's the second round and could have mulitple cards
+                candidates = []
+                for card_name, card_image in self.card_images.items():
+                    res = matchTemplate(screen, card_image, TM_CCOEFF_NORMED)
+                    loc = np_where(res >= 0.9)
+                    for x, y in zip(*loc[::-1]):
+                        val = res[y, x]
+                        dup = any(is_close((x, y), (cx, cy), 12) for _, cx, cy, _ in candidates)
+                        if dup:
+                            existing = [(i, cv) for i, (cn, cx, cy, cv) in enumerate(candidates) if is_close((x, y), (cx, cy), 12)]
+                            if existing:
+                                idx, old_val = existing[0]
+                                if val > old_val:
+                                    candidates[idx] = (card_name, x, y, val)
+                        else:
+                            candidates.append((card_name, x, y, val))
+                if not candidates:
+                    continue
                 dealer_card = ""
                 total_points = 0
                 detected_cards = []
-                for card_name, card_image in self.card_images.items():
-                    res = matchTemplate(screen, card_image, TM_CCOEFF_NORMED)
-                    loc = np_where(res >= 0.95)
-                    for x, y in zip(*loc[::-1]):
-                        already_detected = False
-                        for detected_card in detected_cards:
-                            detect_card_name, detect_card_pos = detected_card
-                            if detect_card_name == card_name and is_close(
-                                detect_card_pos, (x, y)
-                            ):
-                                already_detected = True
-                                break
-                        if not already_detected:
-                            if y < self.layout["WINDOW_HEIGHT"] / 2:
-                                dealer_card = card_name
-                                self.update_count(card_name)
+                for card_name, x, y, _ in candidates:
+                    if y < self.layout["WINDOW_HEIGHT"] / 2:
+                        if not dealer_card:
+                            dealer_card = card_name
+                        self.update_count(card_name)
+                    else:
+                        if self.split_active:
+                            if self.split_round == 1:
+                                min_x, max_x = self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"][1]
                             else:
-                                if self.split_active:
-                                    if self.split_round == 1:
-                                        min_x, max_x = self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"][1]
-                                    else:
-                                        min_x, max_x = self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"][1]
-                                    if min_x <= x <= max_x:
-                                        total_points += card_num_from_card_name(card_name)
-                                        self.update_count(card_name)
-                                        detected_cards.append((card_name, (x, y)))
-                                        continue
-                                    else:
-                                        continue
+                                min_x, max_x = self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"][1]
+                            if min_x <= x <= max_x:
                                 total_points += card_num_from_card_name(card_name)
                                 self.update_count(card_name)
-                            detected_cards.append((card_name, (x, y)))
+                                detected_cards.append((card_name, (x, y)))
+                                continue
+                            else:
+                                continue
+                        total_points += card_num_from_card_name(card_name)
+                        self.update_count(card_name)
+                    detected_cards.append((card_name, (x, y)))
                 cards = [name for name, pt in detected_cards if name != dealer_card]
                 if dealer_card == "" or total_points == 0 or len(cards) < 2:
                     continue
@@ -374,7 +394,7 @@ class ProgramThread(QThread):
                 if self.card_counting and self.cards_seen > DECKS_IN_SHOE * 52 * 0.75:
                     self.reset_count()
                 if self.card_counting and self.wonging and self.true_count < self.wong_tc_threshold:
-                    sleep(1)
+                    sleep(0.5)
                     continue
                 loc = self.compare(bet, screen)
                 self.clickz(loc)
