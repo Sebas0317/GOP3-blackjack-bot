@@ -27,17 +27,26 @@ def hand_value(cards):
 def hand_key(cards):
     if len(cards) == 2:
         v1, v2 = card_value(cards[0]), card_value(cards[1])
-        if v1 == v2:
-            return f"{v1},{v1}" if v1 != 11 else "A,A"
         if "a" in cards:
-            other = v2 if cards[0] == "a" else v1
-            return f"A,{other}"
+            return f"A,{v2 if cards[0] == 'a' else v1}"
+        if v1 == v2:
+            return f"{v1},{v1}"
         return str(v1 + v2)
-    return str(hand_value(cards))
+    h = hand_value(cards)
+    if any(c == "a" for c in cards) and h != hand_value([1 if c == "a" else card_value(c) for c in cards]):
+        aces = [c for c in cards if c == "a"]
+        others = [c for c in cards if c != "a"]
+        if len(aces) == 1 and len(others) == 1:
+            return f"A,{card_value(others[0])}"
+    return str(h)
 
 
 def dealer_str(rank):
     return "A" if rank == "a" else str(card_value(rank))
+
+
+def is_pair(cards):
+    return len(cards) == 2 and card_value(cards[0]) == card_value(cards[1])
 
 
 class Shoe:
@@ -89,13 +98,13 @@ class Trainer:
 
     def get_strategy(self, h_key, d_str):
         basic = CHEAT_SHEET.get((h_key, d_str), "stand")
-        learned = self.learning.best_action(h_key, d_str, self.true_count, ["hit", "stand", "double"])
+        learned = self.learning.best_action(h_key, d_str, self.true_count, ["hit", "stand", "double", "split"])
         if learned is not None:
             return learned
         key = (h_key, d_str)
         if key in I18_DEVIATIONS:
             dev_action, min_tc = I18_DEVIATIONS[key]
-            if self.true_count >= min_tc and dev_action in ["hit", "stand", "double"]:
+            if self.true_count >= min_tc:
                 return dev_action
         return basic
 
@@ -104,36 +113,65 @@ class Trainer:
             self.learning.record(h, d, tc, a, outcome)
         self.pending = []
 
+    def play_player_hand(self, cards, dealer_up_str):
+        while hand_value(cards) < 21:
+            hk = hand_key(cards)
+            action = self.get_strategy(hk, dealer_up_str)
+            self.pending.append((hk, dealer_up_str, self.true_count, action))
+            if action == "stand":
+                break
+            elif action == "double" or action == "split":
+                cards.append(self.deal())
+                break
+            else:  # hit
+                cards.append(self.deal())
+
     def play_hand(self):
         player = [self.deal(), self.deal()]
         dealer_up = self.deal()
 
         if hand_value(player) == 21:
             dealer_down = self.deal()
-            if hand_value([dealer_up, dealer_down]) == 21:
-                pass  # push
-            else:
+            if hand_value([dealer_up, dealer_down]) != 21:
                 self.results["win"] += 1
             self.hands_played += 1
             return
 
         dealer_down = self.deal()
         dealer_cards = [dealer_up, dealer_down]
+        dealer_up_str = dealer_str(dealer_up)
 
-        # Player's turn
-        while hand_value(player) < 21:
+        # Check for split
+        if is_pair(player):
             hk = hand_key(player)
-            ds = dealer_str(dealer_up)
-            action = self.get_strategy(hk, ds)
-            self.pending.append((hk, ds, self.true_count, action))
+            action = self.get_strategy(hk, dealer_up_str)
+            if action == "split":
+                self.hands_played += 1
+                hands = [[player[0], self.deal()], [player[1], self.deal()]]
+                for hand in hands:
+                    self.play_player_hand(hand, dealer_up_str)
 
-            if action == "stand":
-                break
-            elif action == "double":
-                player.append(self.deal())
-                break
-            else:  # hit
-                player.append(self.deal())
+                # Dealer plays once
+                while hand_value(dealer_cards) < 17:
+                    dealer_cards.append(self.deal())
+                dv = hand_value(dealer_cards)
+
+                for hand in hands:
+                    pv = hand_value(hand)
+                    if pv > 21:
+                        outcome = "lose"
+                    elif dv > 21 or pv > dv:
+                        outcome = "win"
+                    elif pv < dv:
+                        outcome = "lose"
+                    else:
+                        outcome = "draw"
+                    self.record(outcome)
+                    self.results[outcome] += 1
+                return
+
+        # Non-split hand
+        self.play_player_hand(player, dealer_up_str)
 
         pv = hand_value(player)
         if pv > 21:
@@ -142,7 +180,6 @@ class Trainer:
             self.hands_played += 1
             return
 
-        # Dealer's turn
         while hand_value(dealer_cards) < 17:
             dealer_cards.append(self.deal())
 

@@ -115,20 +115,6 @@ class ProgramThread(QThread):
         if self.card_counting:
             self.countUpdated.emit(self.running_count, round(self.true_count, 1), round(self.decks_remaining, 1))
 
-    def count_bet_boost(self):
-        if not self.card_counting:
-            return 0
-        tc = self.true_count
-        if tc >= 5:
-            return 8
-        elif tc >= 4:
-            return 4
-        elif tc >= 3:
-            return 2
-        elif tc >= 2:
-            return 1
-        return 0
-
     @property
     def decks_remaining(self):
         return max(1.0, DECKS_IN_SHOE - self.cards_seen / 52.0)
@@ -136,6 +122,18 @@ class ProgramThread(QThread):
     @property
     def true_count(self):
         return self.running_count / self.decks_remaining
+
+    def bet_multiplier(self):
+        if not self.card_counting:
+            return 1
+        tc = self.true_count
+        if tc >= 6: return 16
+        elif tc >= 5: return 10
+        elif tc >= 4: return 6
+        elif tc >= 3: return 3
+        elif tc >= 2: return 2
+        elif tc >= 1: return 1.5
+        return 1
 
     def get_adjusted_strategy(self, hand_key, dealer_card_num_str, basic_strategy, possible_actions=None):
         if not self.card_counting:
@@ -152,16 +150,21 @@ class ProgramThread(QThread):
         return basic_strategy
 
     def current_bet_key(self):
-        total_boost = 0
+        base_val = BET_AMOUNT[self.bet_amount]
+        total_mult = 1.0
         if self.martingale and self.martingale_step > 0:
-            total_boost = self.martingale_step
+            total_mult *= (self.martingale_step + 1)
         if self.card_counting:
-            total_boost += self.count_bet_boost()
-        if total_boost == 0:
-            return self.bet_amount
-        idx = min(self.bet_keys.index(self.bet_amount) + total_boost,
-                  len(self.bet_keys) - 1)
-        return self.bet_keys[idx]
+            total_mult *= self.bet_multiplier()
+        target = base_val * total_mult
+        best = self.bet_amount
+        best_diff = float("inf")
+        for k in self.bet_keys:
+            diff = abs(BET_AMOUNT[k] - target)
+            if diff < best_diff:
+                best_diff = diff
+                best = k
+        return best
 
     def _handle_result(self, amount_rate, outcome):
         self.statUpdated.emit(amount_rate, outcome)
