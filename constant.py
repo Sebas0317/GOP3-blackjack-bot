@@ -401,28 +401,52 @@ OP_POS_PERCENT = {
     "split": (0.715, 0.897),
 }
 
-FIRST_HAND_X = (895, 912)
-SPLIT_FIRST_GROUP_FIRST_HAND_X = (744, 762)
-SPLIT_SECOND_GROUP_FIRST_HAND_X = (1028, 1040)
-SECOND_HAND_X = (939, 953)
-SPLIT_FIRST_GROUP_SECOND_HAND_X = (789, 803)
-SPLIT_SECOND_GROUP_SECOND_HAND_X = (1072, 1084)
-
-OP_POS = {
-    "stand": (852, 969),
-    "hit": (594, 967),
-    "double": (1123, 969),
-    "split": (1373, 969),
-}
-
-BUTTON_WIDTH = 215
-BUTTON_HEIGHT = 115
-
-WINDOW_WIDTH = 1920
-WINDOW_HEIGHT = 1080
-
 SUPPORTED_LANGUAGE = ["English", "Chinese"]
 LANGUAGE_MAP = {
     "English": "en-us",
     "Chinese": "zh-cn",
 }
+
+RESOLUTIONS = {
+    "1920x1080": (1920, 1080),
+    "1366x768": (1366, 768),
+    "1280x720": (1280, 720),
+    "800x600": (800, 600),
+}
+
+
+def compute_layout(width, height):
+    return {
+        "WINDOW_WIDTH": width,
+        "WINDOW_HEIGHT": height,
+        "BUTTON_WIDTH": int(BUTTON_WIDTH_PERCENT * width),
+        "BUTTON_HEIGHT": int(BUTTON_HEIGHT_PERCENT * height),
+        "FIRST_HAND_X": (
+            int(FIRST_HAND_X_PERCENT[0] * width),
+            int(FIRST_HAND_X_PERCENT[1] * width),
+        ),
+        "SECOND_HAND_X": (
+            int(SECOND_HAND_X_PERCENT[0] * width),
+            int(SECOND_HAND_X_PERCENT[1] * width),
+        ),
+        "SPLIT_FIRST_GROUP_FIRST_HAND_X": (
+            int(SPLIT_FIRST_GROUP_FIRST_HAND_X_PERCENT[0] * width),
+            int(SPLIT_FIRST_GROUP_FIRST_HAND_X_PERCENT[1] * width),
+        ),
+        "SPLIT_FIRST_GROUP_SECOND_HAND_X": (
+            int(SPLIT_FIRST_GROUP_SECOND_HAND_X_PERCENT[0] * width),
+            int(SPLIT_FIRST_GROUP_SECOND_HAND_X_PERCENT[1] * width),
+        ),
+        "SPLIT_SECOND_GROUP_FIRST_HAND_X": (
+            int(SPLIT_SECOND_GROUP_FIRST_HAND_X_PERCENT[0] * width),
+            int(SPLIT_SECOND_GROUP_FIRST_HAND_X_PERCENT[1] * width),
+        ),
+        "SPLIT_SECOND_GROUP_SECOND_HAND_X": (
+            int(SPLIT_SECOND_GROUP_SECOND_HAND_X_PERCENT[0] * width),
+            int(SPLIT_SECOND_GROUP_SECOND_HAND_X_PERCENT[1] * width),
+        ),
+        "OP_POS": {
+            action: (int(p[0] * width), int(p[1] * height))
+            for action, p in OP_POS_PERCENT.items()
+        },
+    }

@@ -5,22 +5,7 @@ import pyautogui
 from cv2 import resize, matchTemplate, TM_CCOEFF_NORMED, minMaxLoc
 from PyQt5.QtCore import QThread, pyqtSignal
 from utils import safe_imread, grab_screen
-from constant import (
-    NUMBER,
-    COLOR,
-    CHEAT_SHEET,
-    OP_POS,
-    WINDOW_WIDTH,
-    WINDOW_HEIGHT,
-    BUTTON_WIDTH,
-    BUTTON_HEIGHT,
-    FIRST_HAND_X,
-    SECOND_HAND_X,
-    SPLIT_FIRST_GROUP_FIRST_HAND_X,
-    SPLIT_FIRST_GROUP_SECOND_HAND_X,
-    SPLIT_SECOND_GROUP_FIRST_HAND_X,
-    SPLIT_SECOND_GROUP_SECOND_HAND_X,
-)
+from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout
 
 
 def is_close(pt1, pt2, threshold=8):
@@ -65,11 +50,13 @@ class ProgramThread(QThread):
     statUpdated = pyqtSignal(float, str)
     roundInformUpdated = pyqtSignal(str, str, str)
 
-    def __init__(self, bet_amount, language):
+    def __init__(self, bet_amount, language, resolution="1920x1080"):
         super().__init__()
         self.bet_amount = bet_amount
         self.language = language
         self.running = True
+        width, height = (int(x) for x in resolution.split("x"))
+        self.layout = compute_layout(width, height)
         self.card_images = {}
         self.image_prefix = "image/" + self.language + "/"
         for num in NUMBER:
@@ -84,10 +71,10 @@ class ProgramThread(QThread):
         return loc if val >= 0.9 else None
 
     def clickz(self, top_left):
-        x = top_left[0] + BUTTON_WIDTH / 2
-        y = top_left[1] + BUTTON_HEIGHT / 2
+        x = top_left[0] + self.layout["BUTTON_WIDTH"] / 2
+        y = top_left[1] + self.layout["BUTTON_HEIGHT"] / 2
         pyautogui.click(x, y, button="left", duration=0.05)
-        pyautogui.moveTo(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, duration=0.05)
+        pyautogui.moveTo(self.layout["WINDOW_WIDTH"] / 2, self.layout["WINDOW_HEIGHT"] / 2, duration=0.05)
 
     def run(self):
         is_doubled = False
@@ -105,7 +92,7 @@ class ProgramThread(QThread):
 
         while self.running:
             screen = grab_screen()
-            screen = resize(screen, (WINDOW_WIDTH, WINDOW_HEIGHT))
+            screen = resize(screen, (self.layout["WINDOW_WIDTH"], self.layout["WINDOW_HEIGHT"]))
 
             if self.compare(win, screen):
                 amount_rate = 1
@@ -137,7 +124,7 @@ class ProgramThread(QThread):
                 sleep(2)
             elif self.compare(bust, screen):
                 _, y = self.compare(bust, screen)
-                if y < WINDOW_HEIGHT / 2:
+                if y < self.layout["WINDOW_HEIGHT"] / 2:
                     continue
                 amount_rate = 1
                 if is_doubled:
@@ -168,7 +155,7 @@ class ProgramThread(QThread):
                 sleep(2)
             elif self.compare(blackjack, screen):
                 _, y = self.compare(blackjack, screen)
-                if y < WINDOW_HEIGHT / 2:
+                if y < self.layout["WINDOW_HEIGHT"] / 2:
                     continue
                 amount_rate = 1.5
                 self.statUpdated.emit(amount_rate, "win")
@@ -190,16 +177,16 @@ class ProgramThread(QThread):
                     res = matchTemplate(screen, card_image, TM_CCOEFF_NORMED)
                     loc = np_where(res >= 0.95)
                     for x, y in zip(*loc[::-1]):
-                        if y < WINDOW_HEIGHT / 2:
+                        if y < self.layout["WINDOW_HEIGHT"] / 2:
                             dealer_card = card_name
                         else:
                             if split_round:
                                 if split_round == 1:
                                     first_minn_x, first_maxx_x = (
-                                        SPLIT_SECOND_GROUP_FIRST_HAND_X
+                                        self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"]
                                     )
                                     second_minn_x, second_maxx_x = (
-                                        SPLIT_SECOND_GROUP_SECOND_HAND_X
+                                        self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"]
                                     )
                                     if first_minn_x < x < first_maxx_x:
                                         first_card = card_name
@@ -207,18 +194,18 @@ class ProgramThread(QThread):
                                         second_card = card_name
                                 elif split_round == 2:
                                     first_minn_x, first_maxx_x = (
-                                        SPLIT_FIRST_GROUP_FIRST_HAND_X
+                                        self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"]
                                     )
                                     second_minn_x, second_maxx_x = (
-                                        SPLIT_FIRST_GROUP_SECOND_HAND_X
+                                        self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"]
                                     )
                                     if first_minn_x < x < first_maxx_x:
                                         first_card = card_name
                                     elif second_minn_x < x < second_maxx_x:
                                         second_card = card_name
                             else:
-                                first_minn_x, first_maxx_x = FIRST_HAND_X
-                                second_minn_x, second_maxx_x = SECOND_HAND_X
+                                first_minn_x, first_maxx_x = self.layout["FIRST_HAND_X"]
+                                second_minn_x, second_maxx_x = self.layout["SECOND_HAND_X"]
                                 if first_minn_x < x < first_maxx_x:
                                     first_card = card_name
                                 elif second_minn_x < x < second_maxx_x:
@@ -234,7 +221,7 @@ class ProgramThread(QThread):
                     self.roundInformUpdated.emit(
                         dealer_card, first_card + "," + second_card, "stand"
                     )
-                    self.clickz(OP_POS["stand"])
+                    self.clickz(self.layout["OP_POS"]["stand"])
                     sleep(1)
                     continue
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
@@ -264,7 +251,7 @@ class ProgramThread(QThread):
                 self.roundInformUpdated.emit(
                     dealer_card, first_card + "," + second_card, strategy
                 )
-                self.clickz(OP_POS[strategy])
+                self.clickz(self.layout["OP_POS"][strategy])
             elif self.compare(stand, screen):
                 # which means it's the second round and could have mulitple cards
                 dealer_card = ""
@@ -283,14 +270,14 @@ class ProgramThread(QThread):
                                 already_detected = True
                                 break
                         if not already_detected:
-                            if y < WINDOW_HEIGHT / 2:
+                            if y < self.layout["WINDOW_HEIGHT"] / 2:
                                 dealer_card = card_name
                             else:
                                 if split_active:
                                     if split_round == 1:
-                                        min_x, max_x = SPLIT_SECOND_GROUP_FIRST_HAND_X[0], SPLIT_SECOND_GROUP_SECOND_HAND_X[1]
+                                        min_x, max_x = self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"][1]
                                     else:
-                                        min_x, max_x = SPLIT_FIRST_GROUP_FIRST_HAND_X[0], SPLIT_FIRST_GROUP_SECOND_HAND_X[1]
+                                        min_x, max_x = self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"][1]
                                     if min_x <= x <= max_x:
                                         total_points += card_num_from_card_name(card_name)
                                         detected_cards.append((card_name, (x, y)))
@@ -307,7 +294,7 @@ class ProgramThread(QThread):
                         self.roundInformUpdated.emit(
                             dealer_card, ",".join(cards), "stand"
                         )
-                        self.clickz(OP_POS["stand"])
+                        self.clickz(self.layout["OP_POS"]["stand"])
                         sleep(1)
                         continue
                     elif total_points % 10 == 0:
@@ -327,7 +314,7 @@ class ProgramThread(QThread):
                 if strategy == "double":
                     strategy = "hit"
                 self.roundInformUpdated.emit(dealer_card, ",".join(cards), strategy)
-                self.clickz(OP_POS[strategy])
+                self.clickz(self.layout["OP_POS"][strategy])
             elif self.compare(bet, screen) is not None:
                 loc = self.compare(bet, screen)
                 self.clickz(loc)

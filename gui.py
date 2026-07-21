@@ -38,7 +38,7 @@ class App(QWidget):
         self.system_config_label.setStyleSheet("font-weight: bold;")
         self.resolution_label = QLabel("Resolution: ")
         self.resolution_input = QComboBox()
-        self.resolution_input.addItems(["1920x1080", "1280x720", "800x600"])
+        self.resolution_input.addItems(["1920x1080", "1366x768", "1280x720", "800x600"])
         self.language_label = QLabel("GOP3 Interface Language")
         self.language_input = QComboBox()
         for language in SUPPORTED_LANGUAGE:
@@ -208,7 +208,7 @@ class App(QWidget):
             self.stop_net_profit = int(self.stop_win_input.text())
             self.stop_net_lose = int(self.stop_lose_input.text())
             self.language = LANGUAGE_MAP[self.language_input.currentText()]
-            self.program_thread = ProgramThread(self.bet_amount, self.language)
+            self.program_thread = ProgramThread(self.bet_amount, self.language, self.resolution_input.currentText())
             self.program_thread.statUpdated.connect(self.update_stat)
             self.program_thread.roundInformUpdated.connect(self.update_round_info)
             self.program_thread.start()
