@@ -106,16 +106,27 @@ def state_action_key(learning, hk, ds, tc, action):
     return f"{hk}|{ds}|{learning._tc_bucket(tc)}|{action}"
 
 
+def valid_actions(hk, hand_size):
+    acts = ["hit", "stand"]
+    if hand_size == 2:
+        acts.append("double")
+    if "," in hk and hand_size == 2:
+        acts.append("split")
+    return acts
+
+
 def report_deviations(learning, min_samples=20, top_n=30):
     print("\n=== Learned Deviations vs Basic Strategy ===")
     found = []
-    tcs = [0, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]
+    tcs = [-3, -1.5, -0.5, 0, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]
     for tc in tcs:
         for (hk, ds), basic_action in CHEAT_SHEET.items():
             basic_key = state_action_key(learning, hk, ds, tc, basic_action)
-            q_basic = learning.q.get(basic_key, 0.0)
             c_basic = learning.counts.get(basic_key, 0)
-            for alt in ("hit", "stand", "double", "split"):
+            if c_basic < min_samples:
+                continue
+            q_basic = learning.q.get(basic_key, 0.0)
+            for alt in valid_actions(hk, 2):
                 if alt == basic_action:
                     continue
                 alt_key = state_action_key(learning, hk, ds, tc, alt)
@@ -123,9 +134,9 @@ def report_deviations(learning, min_samples=20, top_n=30):
                 if c_alt < min_samples:
                     continue
                 q_alt = learning.q.get(alt_key, 0.0)
-                if q_alt > q_basic + 0.05:
+                if q_alt > q_basic + 0.03:
                     tc_label = learning._tc_bucket(tc)
-                    found.append((q_alt - q_basic, f"  TC {tc_label}: ({hk}, {ds}) {basic_action} -> {alt} (d={q_alt - q_basic:+.2f}, b={c_basic}, a={c_alt})"))
+                    found.append((q_alt - q_basic, f"  TC {tc_label}: ({hk}, {ds}) {basic_action} -> {alt} (d={q_alt - q_basic:+.3f}, b={c_basic}, a={c_alt})"))
     found.sort(reverse=True, key=lambda x: x[0])
     for _, line in found[:top_n]:
         print(line)
@@ -168,7 +179,10 @@ class Trainer:
         while hand_value(player_cards) < 21:
             hk, ds = self.get_state(player_cards, dealer_up)
             tc = self.true_count
-            action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double"], explore=self.explore)
+            possible = ["hit", "stand"]
+            if len(player_cards) == 2:
+                possible.append("double")
+            action = get_action(hk, ds, tc, self.learning, possible, explore=self.explore)
             if action == "stand":
                 decisions.append((hk, ds, tc, "stand"))
                 break
@@ -206,17 +220,22 @@ class Trainer:
             tc = self.true_count
             action = get_action(hk, ds, tc, self.learning, ["hit", "stand", "double", "split"], explore=self.explore)
             if action == "split":
-                self.hands_played += 1
                 hand1, dec1 = self.play_single_hand([player[0], self.deal()], dealer_up)
                 hand2, dec2 = self.play_single_hand([player[1], self.deal()], dealer_up)
                 dealer_play(self, dealer_cards)
                 dv = hand_value(dealer_cards)
+                rewards = []
                 for hand, decisions in [(hand1, dec1), (hand2, dec2)]:
                     pv = hand_value(hand)
                     R = final_reward(pv, dv)
                     self.mc_update(decisions, R)
+                    rewards.append(R)
                     outcome = "win" if R == 1 else "lose" if R == -1 else "draw"
                     self.results[outcome] += 1
+                    self.hands_played += 1
+                net = sum(rewards)
+                split_outcome = "win" if net > 0 else "lose" if net < 0 else "draw"
+                self.learning.record(hk, ds, tc, "split", split_outcome)
                 return
 
         player, decisions = self.play_single_hand(player, dealer_up)

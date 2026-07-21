@@ -74,6 +74,8 @@ class ProgramThread(QThread):
         self.learning = learning
         self.learning_table = LearningTable()
         self._pending_decisions = []
+        self._pending_round = 0
+        self._pending_first_outcome = None
         self.running_count = 0
         self.cards_seen = 0
         self.martingale_step = 0
@@ -153,7 +155,7 @@ class ProgramThread(QThread):
         base_val = BET_AMOUNT[self.bet_amount]
         total_mult = 1.0
         if self.martingale and self.martingale_step > 0:
-            total_mult *= (self.martingale_step + 1)
+            total_mult *= (2 ** self.martingale_step)
         if self.card_counting:
             total_mult *= self.bet_multiplier()
         target = base_val * total_mult
@@ -168,13 +170,28 @@ class ProgramThread(QThread):
 
     def _handle_result(self, amount_rate, outcome):
         self.statUpdated.emit(amount_rate, outcome)
-        if self.learning and self._pending_decisions and (not self.split_active or self.split_round == 2):
+        if self.learning and self._pending_decisions:
             outcome_key = "win" if outcome == "win" else "lose" if outcome == "lose" else "draw"
-            while self._pending_decisions:
-                h, d, tc, a = self._pending_decisions.pop(0)
-                self.learning_table.record(h, d, tc, a, outcome_key)
-            self.learning_table.save()
-            self.learnUpdated.emit(self.learning_table.total_samples)
+            if self.split_active and self.split_round == 1:
+                self._pending_first_outcome = outcome_key
+                self._pending_round = 2
+            elif self.split_active and self.split_round == 2:
+                remaining = []
+                for entry in self._pending_decisions:
+                    h, d, tc, a, rnd = entry
+                    actual = self._pending_first_outcome if rnd <= 1 else outcome_key
+                    self.learning_table.record(h, d, tc, a, actual)
+                self._pending_decisions.clear()
+                self._pending_first_outcome = None
+                self._pending_round = 0
+                self.learning_table.save()
+                self.learnUpdated.emit(self.learning_table.total_samples)
+            else:
+                while self._pending_decisions:
+                    h, d, tc, a, rnd = self._pending_decisions.pop(0)
+                    self.learning_table.record(h, d, tc, a, outcome_key)
+                self.learning_table.save()
+                self.learnUpdated.emit(self.learning_table.total_samples)
         if self.split_active and self.split_round == 2:
             self.split_active = False
             self.split_round = 0
@@ -189,7 +206,6 @@ class ProgramThread(QThread):
             elif outcome == "lose":
                 if self.martingale:
                     self.martingale_step = min(self.martingale_step + 1, self.martingale_max_steps)
-            # draw: no martingale change
         self.emit_count()
 
     def run(self):
@@ -323,7 +339,7 @@ class ProgramThread(QThread):
                     ["hit", "stand", "double", "split"] if "," in hand_key else ["hit", "stand", "double"]
                 )
                 if self.learning:
-                    self._pending_decisions.append((hand_key, dealer_card_num_str, self.true_count, strategy))
+                    self._pending_decisions.append((hand_key, dealer_card_num_str, self.true_count, strategy, self._pending_round))
                 if strategy == "double":
                     self.is_doubled = True
                 if strategy == "split":
@@ -336,6 +352,7 @@ class ProgramThread(QThread):
                     else:
                         self.split_round = 1
                         self.split_active = True
+                        self._pending_round = 1
                         strategy = "split"
 
                 self.roundInformUpdated.emit(
@@ -412,7 +429,7 @@ class ProgramThread(QThread):
                 if strategy == "double":
                     strategy = "hit"
                 if self.learning:
-                    self._pending_decisions.append((str(total_points), dealer_card_num_str, self.true_count, strategy))
+                    self._pending_decisions.append((str(total_points), dealer_card_num_str, self.true_count, strategy, self._pending_round))
                 self.roundInformUpdated.emit(dealer_card, ",".join(cards), strategy)
                 self.emit_count()
                 self.clickz(self.layout["OP_POS"][strategy])
