@@ -406,6 +406,27 @@ HILO_COUNT = {
     "7": 0, "8": 0, "9": 0, "t": -1, "j": -1, "q": -1, "k": -1,
 }
 
+I18_DEVIATIONS = {
+    ("16", "10"): ("stand", 0),
+    ("15", "10"): ("stand", 4),
+    ("16", "9"): ("stand", 5),
+    ("16", "A"): ("stand", 3),
+    ("15", "A"): ("stand", 4),
+    ("15", "9"): ("stand", 2),
+    ("13", "2"): ("stand", -1),
+    ("13", "3"): ("stand", -2),
+    ("12", "2"): ("stand", 3),
+    ("12", "3"): ("stand", 2),
+    ("11", "A"): ("double", 1),
+    ("10", "10"): ("double", 4),
+    ("10", "A"): ("double", 3),
+    ("9", "2"): ("double", 1),
+    ("9", "7"): ("double", 3),
+    ("8,8", "10"): ("stand", 3),
+}
+
+INSURANCE_TC = 3
+
 SUPPORTED_LANGUAGE = ["English", "Chinese"]
 LANGUAGE_MAP = {
     "English": "en-us",

@@ -5,7 +5,7 @@ import pyautogui
 from cv2 import resize, matchTemplate, TM_CCOEFF_NORMED, minMaxLoc
 from PyQt5.QtCore import QThread, pyqtSignal
 from utils import safe_imread, grab_screen
-from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout, BET_AMOUNT, HILO_COUNT
+from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout, BET_AMOUNT, HILO_COUNT, I18_DEVIATIONS, INSURANCE_TC
 
 
 def is_close(pt1, pt2, threshold=8):
@@ -109,6 +109,20 @@ class ProgramThread(QThread):
         elif tc >= 2:
             return 1
         return 0
+
+    @property
+    def true_count(self):
+        return self.running_count / max(4.0, 1.0)
+
+    def get_adjusted_strategy(self, hand_key, dealer_card_num_str, basic_strategy):
+        if not self.card_counting:
+            return basic_strategy
+        key = (hand_key, dealer_card_num_str)
+        if key in I18_DEVIATIONS:
+            deviation_action, min_tc = I18_DEVIATIONS[key]
+            if self.true_count >= min_tc:
+                return deviation_action
+        return basic_strategy
 
     def current_bet_key(self):
         total_boost = 0
@@ -295,6 +309,10 @@ class ProgramThread(QThread):
                     ]
                 except KeyError:
                     strategy = "stand"
+                strategy = self.get_adjusted_strategy(
+                    card_suite_from_two_card_num(card_num1, card_num2),
+                    dealer_card_num_str, strategy
+                )
                 if strategy == "double":
                     is_doubled = True
                 if strategy == "split":
@@ -376,6 +394,9 @@ class ProgramThread(QThread):
                     ]
                 except KeyError:
                     strategy = "stand"
+                strategy = self.get_adjusted_strategy(
+                    str(total_points), dealer_card_num_str, strategy
+                )
                 if strategy == "double":
                     strategy = "hit"
                 self.roundInformUpdated.emit(dealer_card, ",".join(cards), strategy)
