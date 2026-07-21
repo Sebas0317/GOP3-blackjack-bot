@@ -92,6 +92,7 @@ class ProgramThread(QThread):
     def run(self):
         is_doubled = False
         split_round = 0
+        split_active = False
 
         win = safe_imread(self.image_prefix + "win.png", 0)
         lose = safe_imread(self.image_prefix + "lose.png", 0)
@@ -111,17 +112,29 @@ class ProgramThread(QThread):
                 amount_rate = 1
                 if is_doubled:
                     amount_rate = 2
-                is_doubled = False
-                split_round = 0
                 self.statUpdated.emit(amount_rate, "win")
+                if split_active and split_round == 2:
+                    split_active = False
+                    split_round = 0
+                    is_doubled = False
+                elif split_active:
+                    split_round = 2
+                else:
+                    is_doubled = False
                 sleep(2)
             elif self.compare(lose, screen):
                 amount_rate = 1
                 if is_doubled:
                     amount_rate = 2
-                is_doubled = False
-                split_round = 0
                 self.statUpdated.emit(amount_rate, "lose")
+                if split_active and split_round == 2:
+                    split_active = False
+                    split_round = 0
+                    is_doubled = False
+                elif split_active:
+                    split_round = 2
+                else:
+                    is_doubled = False
                 sleep(2)
             elif self.compare(bust, screen):
                 _, y = self.compare(bust, screen)
@@ -130,26 +143,44 @@ class ProgramThread(QThread):
                 amount_rate = 1
                 if is_doubled:
                     amount_rate = 2
-                is_doubled = False
-                split_round = 0
                 self.statUpdated.emit(amount_rate, "lose")
+                if split_active and split_round == 2:
+                    split_active = False
+                    split_round = 0
+                    is_doubled = False
+                elif split_active:
+                    split_round = 2
+                else:
+                    is_doubled = False
                 sleep(2)
             elif self.compare(draw, screen):
                 amount_rate = 1
                 if is_doubled:
                     amount_rate = 2
-                is_doubled = False
-                split_round = 0
                 self.statUpdated.emit(amount_rate, "draw")
+                if split_active and split_round == 2:
+                    split_active = False
+                    split_round = 0
+                    is_doubled = False
+                elif split_active:
+                    split_round = 2
+                else:
+                    is_doubled = False
                 sleep(2)
             elif self.compare(blackjack, screen):
                 _, y = self.compare(blackjack, screen)
                 if y < WINDOW_HEIGHT / 2:
                     continue
                 amount_rate = 1.5
-                is_doubled = False
-                split_round = 0
                 self.statUpdated.emit(amount_rate, "win")
+                if split_active and split_round == 2:
+                    split_active = False
+                    split_round = 0
+                    is_doubled = False
+                elif split_active:
+                    split_round = 2
+                else:
+                    is_doubled = False
                 sleep(2)
             elif self.compare(double, screen):
                 # It's the first round
@@ -208,12 +239,15 @@ class ProgramThread(QThread):
                     sleep(1)
                     continue
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
-                strategy = CHEAT_SHEET[
-                    (
-                        card_suite_from_two_card_num(card_num1, card_num2),
-                        dealer_card_num_str,
-                    )
-                ]
+                try:
+                    strategy = CHEAT_SHEET[
+                        (
+                            card_suite_from_two_card_num(card_num1, card_num2),
+                            dealer_card_num_str,
+                        )
+                    ]
+                except KeyError:
+                    strategy = "stand"
                 if strategy == "double":
                     is_doubled = True
                 if strategy == "split":
@@ -223,16 +257,10 @@ class ProgramThread(QThread):
                             strategy = "hit"
                         else:
                             strategy = "stand"
-                        if split_round == 1:
-                            split_round = 2
-                        else:
-                            split_round = 0
                     else:
                         split_round = 1
-                elif split_round == 1:
-                    split_round = 2
-                else:
-                    split_round = 0
+                        split_active = True
+                        strategy = "split"
 
                 self.roundInformUpdated.emit(
                     dealer_card, first_card + "," + second_card, strategy
@@ -259,6 +287,17 @@ class ProgramThread(QThread):
                             if y < WINDOW_HEIGHT / 2:
                                 dealer_card = card_name
                             else:
+                                if split_active:
+                                    if split_round == 1:
+                                        min_x, max_x = SPLIT_SECOND_GROUP_FIRST_HAND_X[0], SPLIT_SECOND_GROUP_SECOND_HAND_X[1]
+                                    else:
+                                        min_x, max_x = SPLIT_FIRST_GROUP_FIRST_HAND_X[0], SPLIT_FIRST_GROUP_SECOND_HAND_X[1]
+                                    if min_x <= x <= max_x:
+                                        total_points += card_num_from_card_name(card_name)
+                                        detected_cards.append((card_name, (x, y)))
+                                        continue
+                                    else:
+                                        continue
                                 total_points += card_num_from_card_name(card_name)
                             detected_cards.append((card_name, (x, y)))
                 cards = [name for name, pt in detected_cards if name != dealer_card]
@@ -277,12 +316,15 @@ class ProgramThread(QThread):
                     else:
                         total_points = total_points % 10 + 10
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
-                strategy = CHEAT_SHEET[
-                    (
-                        str(total_points),
-                        dealer_card_num_str,
-                    )
-                ]
+                try:
+                    strategy = CHEAT_SHEET[
+                        (
+                            str(total_points),
+                            dealer_card_num_str,
+                        )
+                    ]
+                except KeyError:
+                    strategy = "stand"
                 if strategy == "double":
                     strategy = "hit"
                 self.roundInformUpdated.emit(dealer_card, ",".join(cards), strategy)
