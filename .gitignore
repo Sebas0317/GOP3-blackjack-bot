@@ -11,3 +11,5 @@ learning_data.json
 captured.png
 best_match_region.png
 bottom_region.png
+capture.py
+test.py
