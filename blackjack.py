@@ -5,7 +5,7 @@ import pyautogui
 from cv2 import resize, matchTemplate, TM_CCOEFF_NORMED, minMaxLoc
 from PyQt5.QtCore import QThread, pyqtSignal
 from utils import safe_imread, grab_screen
-from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout, BET_AMOUNT, HILO_COUNT, I18_DEVIATIONS, INSURANCE_TC
+from constant import NUMBER, COLOR, CHEAT_SHEET, compute_layout, BET_AMOUNT, HILO_COUNT, I18_DEVIATIONS, INSURANCE_TC, DECKS_IN_SHOE
 
 
 def is_close(pt1, pt2, threshold=8):
@@ -49,11 +49,12 @@ def card_suite_from_two_card_num(card_num1: int, card_num2: int) -> str:
 class ProgramThread(QThread):
     statUpdated = pyqtSignal(float, str)
     roundInformUpdated = pyqtSignal(str, str, str)
-    countUpdated = pyqtSignal(int, float)
+    countUpdated = pyqtSignal(int, float, float)
 
     def __init__(self, bet_amount, language, resolution="1920x1080",
                  martingale=False, martingale_max_steps=4,
-                 card_counting=False):
+                 card_counting=False,
+                 wonging=False, wong_tc_threshold=-2):
         super().__init__()
         self.bet_amount = bet_amount
         self.language = language
@@ -65,7 +66,14 @@ class ProgramThread(QThread):
         self.martingale = martingale
         self.martingale_max_steps = martingale_max_steps
         self.card_counting = card_counting
+        self.wonging = wonging
+        self.wong_tc_threshold = wong_tc_threshold
         self.running_count = 0
+        self.cards_seen = 0
+        self.martingale_step = 0
+        self.is_doubled = False
+        self.split_round = 0
+        self.split_active = False
         self.bet_keys = list(BET_AMOUNT.keys())
         for num in NUMBER:
             for col in COLOR:
@@ -87,19 +95,24 @@ class ProgramThread(QThread):
     def update_count(self, card_name):
         if not self.card_counting:
             return
+        self.cards_seen += 1
         rank = card_name[1]
         if rank in HILO_COUNT:
             self.running_count += HILO_COUNT[rank]
 
+    def reset_count(self):
+        self.running_count = 0
+        self.cards_seen = 0
+        self.emit_count()
+
     def emit_count(self):
         if self.card_counting:
-            tc = self.running_count / max(4.0, 1.0)
-            self.countUpdated.emit(self.running_count, round(tc, 1))
+            self.countUpdated.emit(self.running_count, round(self.true_count, 1), round(self.decks_remaining, 1))
 
     def count_bet_boost(self):
         if not self.card_counting:
             return 0
-        tc = self.running_count / max(4.0, 1.0)
+        tc = self.true_count
         if tc >= 5:
             return 8
         elif tc >= 4:
@@ -111,8 +124,12 @@ class ProgramThread(QThread):
         return 0
 
     @property
+    def decks_remaining(self):
+        return max(1.0, DECKS_IN_SHOE - self.cards_seen / 52.0)
+
+    @property
     def true_count(self):
-        return self.running_count / max(4.0, 1.0)
+        return self.running_count / self.decks_remaining
 
     def get_adjusted_strategy(self, hand_key, dealer_card_num_str, basic_strategy):
         if not self.card_counting:
@@ -136,10 +153,29 @@ class ProgramThread(QThread):
                   len(self.bet_keys) - 1)
         return self.bet_keys[idx]
 
+    def _handle_result(self, amount_rate, outcome):
+        self.statUpdated.emit(amount_rate, outcome)
+        if self.split_active and self.split_round == 2:
+            self.split_active = False
+            self.split_round = 0
+            self.is_doubled = False
+        elif self.split_active:
+            self.split_round = 2
+        else:
+            self.is_doubled = False
+            if outcome == "win":
+                if self.martingale:
+                    self.martingale_step = 0
+            elif outcome == "lose":
+                if self.martingale:
+                    self.martingale_step = min(self.martingale_step + 1, self.martingale_max_steps)
+            # draw: no martingale change
+        self.emit_count()
+
     def run(self):
-        is_doubled = False
-        split_round = 0
-        split_active = False
+        self.is_doubled = False
+        self.split_round = 0
+        self.split_active = False
 
         win = safe_imread(self.image_prefix + "win.png", 0)
         lose = safe_imread(self.image_prefix + "lose.png", 0)
@@ -155,91 +191,29 @@ class ProgramThread(QThread):
             screen = resize(screen, (self.layout["WINDOW_WIDTH"], self.layout["WINDOW_HEIGHT"]))
 
             if self.compare(win, screen):
-                amount_rate = 1
-                if is_doubled:
-                    amount_rate = 2
-                self.statUpdated.emit(amount_rate, "win")
-                if split_active and split_round == 2:
-                    split_active = False
-                    split_round = 0
-                    is_doubled = False
-                elif split_active:
-                    split_round = 2
-                else:
-                    is_doubled = False
-                    if self.martingale:
-                        self.martingale_step = 0
-                self.emit_count()
+                amount_rate = 2 if self.is_doubled else 1
+                self._handle_result(amount_rate, "win")
                 sleep(2)
             elif self.compare(lose, screen):
-                amount_rate = 1
-                if is_doubled:
-                    amount_rate = 2
-                self.statUpdated.emit(amount_rate, "lose")
-                if split_active and split_round == 2:
-                    split_active = False
-                    split_round = 0
-                    is_doubled = False
-                elif split_active:
-                    split_round = 2
-                else:
-                    is_doubled = False
-                    if self.martingale:
-                        self.martingale_step = min(self.martingale_step + 1, self.martingale_max_steps)
-                self.emit_count()
+                amount_rate = 2 if self.is_doubled else 1
+                self._handle_result(amount_rate, "lose")
                 sleep(2)
             elif self.compare(bust, screen):
                 _, y = self.compare(bust, screen)
                 if y < self.layout["WINDOW_HEIGHT"] / 2:
                     continue
-                amount_rate = 1
-                if is_doubled:
-                    amount_rate = 2
-                self.statUpdated.emit(amount_rate, "lose")
-                if split_active and split_round == 2:
-                    split_active = False
-                    split_round = 0
-                    is_doubled = False
-                elif split_active:
-                    split_round = 2
-                else:
-                    is_doubled = False
-                    if self.martingale:
-                        self.martingale_step = min(self.martingale_step + 1, self.martingale_max_steps)
-                self.emit_count()
+                amount_rate = 2 if self.is_doubled else 1
+                self._handle_result(amount_rate, "lose")
                 sleep(2)
             elif self.compare(draw, screen):
-                amount_rate = 1
-                if is_doubled:
-                    amount_rate = 2
-                self.statUpdated.emit(amount_rate, "draw")
-                if split_active and split_round == 2:
-                    split_active = False
-                    split_round = 0
-                    is_doubled = False
-                elif split_active:
-                    split_round = 2
-                else:
-                    is_doubled = False
-                self.emit_count()
+                amount_rate = 2 if self.is_doubled else 1
+                self._handle_result(amount_rate, "draw")
                 sleep(2)
             elif self.compare(blackjack, screen):
                 _, y = self.compare(blackjack, screen)
                 if y < self.layout["WINDOW_HEIGHT"] / 2:
                     continue
-                amount_rate = 1.5
-                self.statUpdated.emit(amount_rate, "win")
-                if split_active and split_round == 2:
-                    split_active = False
-                    split_round = 0
-                    is_doubled = False
-                elif split_active:
-                    split_round = 2
-                else:
-                    is_doubled = False
-                    if self.martingale:
-                        self.martingale_step = 0
-                self.emit_count()
+                self._handle_result(1.5, "win")
                 sleep(2)
             elif self.compare(double, screen):
                 # It's the first round
@@ -255,8 +229,8 @@ class ProgramThread(QThread):
                             self.update_count(card_name)
                         else:
                             self.update_count(card_name)
-                            if split_round:
-                                if split_round == 1:
+                            if self.split_round:
+                                if self.split_round == 1:
                                     first_minn_x, first_maxx_x = (
                                         self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"]
                                     )
@@ -267,7 +241,7 @@ class ProgramThread(QThread):
                                         first_card = card_name
                                     elif second_minn_x < x < second_maxx_x:
                                         second_card = card_name
-                                elif split_round == 2:
+                                elif self.split_round == 2:
                                     first_minn_x, first_maxx_x = (
                                         self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"]
                                     )
@@ -314,17 +288,17 @@ class ProgramThread(QThread):
                     dealer_card_num_str, strategy
                 )
                 if strategy == "double":
-                    is_doubled = True
+                    self.is_doubled = True
                 if strategy == "split":
-                    if split_round > 0:
+                    if self.split_round > 0:
                         # we can't split again
                         if card_num1 + card_num2 < 12:
                             strategy = "hit"
                         else:
                             strategy = "stand"
                     else:
-                        split_round = 1
-                        split_active = True
+                        self.split_round = 1
+                        self.split_active = True
                         strategy = "split"
 
                 self.roundInformUpdated.emit(
@@ -354,8 +328,8 @@ class ProgramThread(QThread):
                                 dealer_card = card_name
                                 self.update_count(card_name)
                             else:
-                                if split_active:
-                                    if split_round == 1:
+                                if self.split_active:
+                                    if self.split_round == 1:
                                         min_x, max_x = self.layout["SPLIT_SECOND_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_SECOND_GROUP_SECOND_HAND_X"][1]
                                     else:
                                         min_x, max_x = self.layout["SPLIT_FIRST_GROUP_FIRST_HAND_X"][0], self.layout["SPLIT_FIRST_GROUP_SECOND_HAND_X"][1]
@@ -373,17 +347,11 @@ class ProgramThread(QThread):
                 if dealer_card == "" or total_points == 0 or len(cards) < 2:
                     continue
                 if total_points >= 21:
-                    if total_points % 10 == 1:
-                        self.roundInformUpdated.emit(
-                            dealer_card, ",".join(cards), "stand"
-                        )
-                        self.clickz(self.layout["OP_POS"]["stand"])
-                        sleep(1)
-                        continue
-                    elif total_points % 10 == 0:
-                        total_points = 20
-                    else:
-                        total_points = total_points % 10 + 10
+                    ace_count = sum(1 for c in cards if len(c) >= 2 and c[1] == "a")
+                    for _ in range(ace_count):
+                        if total_points <= 21:
+                            break
+                        total_points -= 10
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
                 try:
                     strategy = CHEAT_SHEET[
@@ -403,6 +371,11 @@ class ProgramThread(QThread):
                 self.emit_count()
                 self.clickz(self.layout["OP_POS"][strategy])
             elif self.compare(bet, screen) is not None:
+                if self.card_counting and self.cards_seen > DECKS_IN_SHOE * 52 * 0.75:
+                    self.reset_count()
+                if self.card_counting and self.wonging and self.true_count < self.wong_tc_threshold:
+                    sleep(1)
+                    continue
                 loc = self.compare(bet, screen)
                 self.clickz(loc)
                 new_bet_key = self.current_bet_key()

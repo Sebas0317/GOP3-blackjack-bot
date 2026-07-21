@@ -116,11 +116,24 @@ class App(QWidget):
         self.martingale_steps_input.setFixedWidth(150)
         self.card_counting_checkbox = QCheckBox("Hi-Lo Card Counting")
         self.card_counting_checkbox.setChecked(False)
+        self.wonging_checkbox = QCheckBox("Wonging (Skip negative TC)")
+        self.wonging_checkbox.setChecked(False)
+        self.wong_tc_label = QLabel("Wong TC Threshold:")
+        self.wong_tc_input = QSpinBox()
+        self.wong_tc_input.setRange(-10, 0)
+        self.wong_tc_input.setValue(-2)
+        self.wong_tc_input.setFixedWidth(150)
+        self.reset_count_button = QPushButton("Reset Count")
+        self.reset_count_button.clicked.connect(self.reset_count)
         input_layout.addWidget(self.betting_system_label, 8, 0, 1, 2)
         input_layout.addWidget(self.martingale_checkbox, 9, 0)
         input_layout.addWidget(self.martingale_steps_label, 9, 1)
         input_layout.addWidget(self.martingale_steps_input, 9, 2)
         input_layout.addWidget(self.card_counting_checkbox, 10, 0, 1, 2)
+        input_layout.addWidget(self.wonging_checkbox, 11, 0, 1, 2)
+        input_layout.addWidget(self.wong_tc_label, 12, 0)
+        input_layout.addWidget(self.wong_tc_input, 12, 1)
+        input_layout.addWidget(self.reset_count_button, 13, 0)
 
         # Cheat Sheet Layout
         self.cheat_sheet_layout = QVBoxLayout()
@@ -169,6 +182,7 @@ class App(QWidget):
         self.net_win_label = QLabel("Net Win: ")
         self.running_count_label = QLabel("Running Count: 0")
         self.true_count_label = QLabel("True Count: 0")
+        self.decks_remaining_label = QLabel("Decks Remaining: 0")
         self.round_info_layout.addWidget(self.round_info_label, 0, 0, 1, 2)
         self.round_info_layout.addWidget(self.dealer_card_label, 1, 0)
         self.round_info_layout.addWidget(self.player_cards_label, 1, 1)
@@ -177,6 +191,7 @@ class App(QWidget):
         self.round_info_layout.addWidget(self.net_win_label, 2, 3)
         self.round_info_layout.addWidget(self.running_count_label, 3, 0)
         self.round_info_layout.addWidget(self.true_count_label, 3, 1)
+        self.round_info_layout.addWidget(self.decks_remaining_label, 3, 2)
 
         # Statistics Layout
         self.statistics_layout = QGridLayout()
@@ -233,6 +248,7 @@ class App(QWidget):
                 self.bet_amount, self.language, self.resolution_input.currentText(),
                 self.martingale_checkbox.isChecked(), self.martingale_steps_input.value(),
                 self.card_counting_checkbox.isChecked(),
+                self.wonging_checkbox.isChecked(), self.wong_tc_input.value(),
             )
             self.program_thread.countUpdated.connect(self.update_count)
             self.program_thread.statUpdated.connect(self.update_stat)
@@ -248,6 +264,10 @@ class App(QWidget):
         self.start_button.setChecked(False)
         self.stop_button.setChecked(False)
         self.update_button_styles()
+
+    def reset_count(self):
+        if hasattr(self, "program_thread"):
+            self.program_thread.reset_count()
 
     def update_stat(self, bet_rate, condition):
         self.total_hand += 1
@@ -290,9 +310,10 @@ class App(QWidget):
         self.player_cards_label.setText(f"Player Cards: {player_cards}")
         self.strategy_label.setText(f"Strategy: {strategy}")
 
-    def update_count(self, running, true):
+    def update_count(self, running, true, decks):
         self.running_count_label.setText(f"Running Count: {running}")
         self.true_count_label.setText(f"True Count: {true}")
+        self.decks_remaining_label.setText(f"Decks Remaining: {decks}")
 
     def update_graph(self, bet_amounts, win_amounts):
         self.graph_scene.clear()

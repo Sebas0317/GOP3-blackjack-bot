@@ -433,6 +433,8 @@ LANGUAGE_MAP = {
     "Chinese": "zh-cn",
 }
 
+DECKS_IN_SHOE = 6
+
 RESOLUTIONS = {
     "1920x1080": (1920, 1080),
     "1366x768": (1366, 768),
