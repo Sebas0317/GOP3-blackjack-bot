@@ -33,11 +33,10 @@ def hand_key(cards):
             return f"{v1},{v1}"
         return str(v1 + v2)
     h = hand_value(cards)
-    if any(c == "a" for c in cards) and h != hand_value([1 if c == "a" else card_value(c) for c in cards]):
-        aces = [c for c in cards if c == "a"]
-        others = [c for c in cards if c != "a"]
-        if len(aces) == 1 and len(others) == 1:
-            return f"A,{card_value(others[0])}"
+    if any(c == "a" for c in cards):
+        h_no_ace = hand_value([1 if c == "a" else card_value(c) for c in cards])
+        if h != h_no_ace:
+            return f"S{h}"
     return str(h)
 
 
@@ -87,10 +86,17 @@ def dealer_play(shoe, cards):
     return cards
 
 
+def cheat_key(hk):
+    if hk.startswith("S"):
+        v = int(hk[1:])
+        return f"A,{v - 11}"
+    return hk
+
+
 def get_action(hk, ds, tc, learning, possible, explore=False):
     if explore:
         return learning.choose_action(hk, ds, tc, possible)
-    basic = CHEAT_SHEET.get((hk, ds), "stand")
+    basic = CHEAT_SHEET.get((hk, ds), CHEAT_SHEET.get((cheat_key(hk), ds), "stand"))
     learned = learning.best_action(hk, ds, tc, possible)
     if learned is not None:
         return learned
@@ -134,9 +140,14 @@ def report_deviations(learning, min_samples=20, top_n=30):
                 if c_alt < min_samples:
                     continue
                 q_alt = learning.q.get(alt_key, 0.0)
-                if q_alt > q_basic + 0.03:
+                d = q_alt - q_basic
+                var_basic = max(0.01, 1.0 - q_basic * q_basic)
+                var_alt = max(0.01, 1.0 - q_alt * q_alt)
+                se = (var_basic / c_basic + var_alt / c_alt) ** 0.5
+                z = d / se if se > 0 else 0
+                if d > 0.01 and abs(z) > 3.0:
                     tc_label = learning._tc_bucket(tc)
-                    found.append((q_alt - q_basic, f"  TC {tc_label}: ({hk}, {ds}) {basic_action} -> {alt} (d={q_alt - q_basic:+.3f}, b={c_basic}, a={c_alt})"))
+                    found.append((d, f"  TC {tc_label}: ({hk}, {ds}) {basic_action} -> {alt} (d={d:+.3f}, z={z:.1f}, b={c_basic}, a={c_alt})"))
     found.sort(reverse=True, key=lambda x: x[0])
     for _, line in found[:top_n]:
         print(line)

@@ -413,17 +413,31 @@ class ProgramThread(QThread):
                             break
                         total_points -= 10
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
+                hard_sum = 0
+                ace_cnt = 0
+                for c in cards:
+                    if len(c) >= 2 and c[1] == "a":
+                        ace_cnt += 1
+                        hard_sum += 1
+                    else:
+                        hard_sum += card_num_from_card_name(c)
+                soft_sum = hard_sum
+                tmp = ace_cnt
+                while tmp and soft_sum + 10 <= 21:
+                    soft_sum += 10
+                    tmp -= 1
+                lookup_key = f"A,{soft_sum - 11}" if soft_sum != hard_sum else str(soft_sum)
                 try:
                     strategy = CHEAT_SHEET[
                         (
-                            str(total_points),
+                            lookup_key,
                             dealer_card_num_str,
                         )
                     ]
                 except KeyError:
                     strategy = "stand"
                 strategy = self.get_adjusted_strategy(
-                    str(total_points), dealer_card_num_str, strategy,
+                    lookup_key, dealer_card_num_str, strategy,
                     ["hit", "stand"]
                 )
                 if strategy == "double":
