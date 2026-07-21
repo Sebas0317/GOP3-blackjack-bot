@@ -401,6 +401,11 @@ OP_POS_PERCENT = {
     "split": (0.715, 0.897),
 }
 
+HILO_COUNT = {
+    "a": -1, "2": 1, "3": 1, "4": 1, "5": 1, "6": 1,
+    "7": 0, "8": 0, "9": 0, "t": -1, "j": -1, "q": -1, "k": -1,
+}
+
 SUPPORTED_LANGUAGE = ["English", "Chinese"]
 LANGUAGE_MAP = {
     "English": "en-us",

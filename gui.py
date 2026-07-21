@@ -114,10 +114,13 @@ class App(QWidget):
         self.martingale_steps_input.setRange(1, 10)
         self.martingale_steps_input.setValue(4)
         self.martingale_steps_input.setFixedWidth(150)
+        self.card_counting_checkbox = QCheckBox("Hi-Lo Card Counting")
+        self.card_counting_checkbox.setChecked(False)
         input_layout.addWidget(self.betting_system_label, 8, 0, 1, 2)
         input_layout.addWidget(self.martingale_checkbox, 9, 0)
         input_layout.addWidget(self.martingale_steps_label, 9, 1)
         input_layout.addWidget(self.martingale_steps_input, 9, 2)
+        input_layout.addWidget(self.card_counting_checkbox, 10, 0, 1, 2)
 
         # Cheat Sheet Layout
         self.cheat_sheet_layout = QVBoxLayout()
@@ -164,12 +167,16 @@ class App(QWidget):
         self.strategy_label = QLabel("Strategy: ")
         self.remaining_hands_label = QLabel("Remaining Hands: ")
         self.net_win_label = QLabel("Net Win: ")
+        self.running_count_label = QLabel("Running Count: 0")
+        self.true_count_label = QLabel("True Count: 0")
         self.round_info_layout.addWidget(self.round_info_label, 0, 0, 1, 2)
         self.round_info_layout.addWidget(self.dealer_card_label, 1, 0)
         self.round_info_layout.addWidget(self.player_cards_label, 1, 1)
         self.round_info_layout.addWidget(self.strategy_label, 2, 0)
         self.round_info_layout.addWidget(self.remaining_hands_label, 2, 1)
         self.round_info_layout.addWidget(self.net_win_label, 2, 3)
+        self.round_info_layout.addWidget(self.running_count_label, 3, 0)
+        self.round_info_layout.addWidget(self.true_count_label, 3, 1)
 
         # Statistics Layout
         self.statistics_layout = QGridLayout()
@@ -225,7 +232,9 @@ class App(QWidget):
             self.program_thread = ProgramThread(
                 self.bet_amount, self.language, self.resolution_input.currentText(),
                 self.martingale_checkbox.isChecked(), self.martingale_steps_input.value(),
+                self.card_counting_checkbox.isChecked(),
             )
+            self.program_thread.countUpdated.connect(self.update_count)
             self.program_thread.statUpdated.connect(self.update_stat)
             self.program_thread.roundInformUpdated.connect(self.update_round_info)
             self.program_thread.start()
@@ -280,6 +289,10 @@ class App(QWidget):
         self.dealer_card_label.setText(f"Dealer Card: {dealer_card}")
         self.player_cards_label.setText(f"Player Cards: {player_cards}")
         self.strategy_label.setText(f"Strategy: {strategy}")
+
+    def update_count(self, running, true):
+        self.running_count_label.setText(f"Running Count: {running}")
+        self.true_count_label.setText(f"True Count: {true}")
 
     def update_graph(self, bet_amounts, win_amounts):
         self.graph_scene.clear()
