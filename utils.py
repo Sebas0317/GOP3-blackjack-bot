@@ -1,7 +1,8 @@
 import os
 import sys
+import numpy as np
 import cv2
-from pyscreeze import screenshot
+import pyautogui
 
 
 def resource_path(relative_path):
@@ -18,7 +19,7 @@ def safe_imread(file_path, flag=0):
     return cv2.imread(resource_path(file_path), flag)
 
 
-def safe_screenshot(file_path):
-    """Take screenshot with proper path handling"""
-    os.makedirs(os.path.dirname(resource_path(file_path)), exist_ok=True)
-    screenshot(resource_path(file_path))
+def grab_screen():
+    """Take screenshot in memory (no disk I/O) and return as grayscale numpy array"""
+    pil_img = pyautogui.screenshot()
+    return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2GRAY)

@@ -4,7 +4,7 @@ from numpy import sqrt as np_sqrt
 import pyautogui
 from cv2 import resize, matchTemplate, TM_CCOEFF_NORMED, minMaxLoc
 from PyQt5.QtCore import QThread, pyqtSignal
-from utils import safe_imread, safe_screenshot
+from utils import safe_imread, grab_screen
 from constant import (
     NUMBER,
     COLOR,
@@ -86,8 +86,8 @@ class ProgramThread(QThread):
     def clickz(self, top_left):
         x = top_left[0] + BUTTON_WIDTH / 2
         y = top_left[1] + BUTTON_HEIGHT / 2
-        pyautogui.click(x, y, button="left", duration=0.25)
-        pyautogui.moveTo(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, duration=0.25)
+        pyautogui.click(x, y, button="left", duration=0.05)
+        pyautogui.moveTo(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, duration=0.05)
 
     def run(self):
         is_doubled = False
@@ -104,8 +104,7 @@ class ProgramThread(QThread):
         bet = safe_imread(r"image/bet/bet" + self.bet_amount + ".png", 0)
 
         while self.running:
-            safe_screenshot("image/screen.png")
-            screen = safe_imread(r"image/screen.png", 0)
+            screen = grab_screen()
             screen = resize(screen, (WINDOW_WIDTH, WINDOW_HEIGHT))
 
             if self.compare(win, screen):
