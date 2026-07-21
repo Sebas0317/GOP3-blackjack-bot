@@ -204,6 +204,8 @@ class ProgramThread(QThread):
                     self.roundInformUpdated.emit(
                         dealer_card, first_card + "," + second_card, "stand"
                     )
+                    self.clickz(OP_POS["stand"])
+                    sleep(1)
                     continue
                 dealer_card_num_str = card_num_str_from_card_name(dealer_card)
                 strategy = CHEAT_SHEET[
@@ -267,6 +269,8 @@ class ProgramThread(QThread):
                         self.roundInformUpdated.emit(
                             dealer_card, ",".join(cards), "stand"
                         )
+                        self.clickz(OP_POS["stand"])
+                        sleep(1)
                         continue
                     elif total_points % 10 == 0:
                         total_points = 20
